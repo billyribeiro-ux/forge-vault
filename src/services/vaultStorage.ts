@@ -4,6 +4,7 @@ import {
   CodeLessonItem,
   CopyFormat,
   MarkdownDocItem,
+  PromptFolder,
   PromptItem,
   PromptVariable,
   TechStackItem,
@@ -11,11 +12,20 @@ import {
   VaultBackupBundle,
 } from "../types/vault";
 
-const LEGACY_DB_NAME = "forgevault_idb_v1";
+export const BACKUP_FORMAT_VERSION = "2026.10.31";
+
 const DB_NAME = "forgevault_idb_v2";
-const DB_VERSION = 2;
+// v3 adds the promptFolders store. Upgrades only add missing stores; they never drop data.
+const DB_VERSION = 3;
+
+/**
+ * `forgevault_idb_v1` was the database name before v2. Earlier builds deleted it on every launch
+ * without migrating it. It is now left untouched so any surviving data can still be recovered.
+ */
+export const LEGACY_DB_NAME = "forgevault_idb_v1";
 
 const STORES = {
+  promptFolders: "promptFolders",
   prompts: "prompts",
   stacks: "stacks",
   lessons: "lessons",
@@ -24,7 +34,8 @@ const STORES = {
   clipboardHistory: "clipboardHistory",
 } as const;
 
-let legacyPurged = false;
+type StoreName = (typeof STORES)[keyof typeof STORES];
+
 let dbInstancePromise: Promise<IDBDatabase> | null = null;
 
 function openDatabase(): Promise<IDBDatabase> {
@@ -39,36 +50,14 @@ function openDatabase(): Promise<IDBDatabase> {
       return;
     }
 
-    if (!legacyPurged) {
-      legacyPurged = true;
-      try {
-        indexedDB.deleteDatabase(LEGACY_DB_NAME);
-      } catch {
-        // Ignore
-      }
-    }
-
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
     request.onupgradeneeded = () => {
       const db = request.result;
-      if (!db.objectStoreNames.contains(STORES.prompts)) {
-        db.createObjectStore(STORES.prompts, { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains(STORES.stacks)) {
-        db.createObjectStore(STORES.stacks, { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains(STORES.lessons)) {
-        db.createObjectStore(STORES.lessons, { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains(STORES.markdownDocs)) {
-        db.createObjectStore(STORES.markdownDocs, { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains(STORES.preferences)) {
-        db.createObjectStore(STORES.preferences, { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains(STORES.clipboardHistory)) {
-        db.createObjectStore(STORES.clipboardHistory, { keyPath: "id" });
+      for (const store of Object.values(STORES)) {
+        if (!db.objectStoreNames.contains(store)) {
+          db.createObjectStore(store, { keyPath: "id" });
+        }
       }
     };
 
@@ -86,26 +75,34 @@ function openDatabase(): Promise<IDBDatabase> {
 
     request.onerror = () => {
       dbInstancePromise = null;
-      reject(request.error);
+      reject(request.error ?? new Error("Failed to open the ForgeVault database"));
+    };
+
+    request.onblocked = () => {
+      dbInstancePromise = null;
+      reject(new Error("The ForgeVault database is open in another window with an older version"));
     };
   });
 
   return dbInstancePromise;
 }
 
-async function getAllFromStore<T>(storeName: string): Promise<T[]> {
+async function getAllFromStore<T>(storeName: StoreName): Promise<T[]> {
   const db = await openDatabase();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(storeName, "readonly");
-    const store = tx.objectStore(storeName);
-    const req = store.getAll();
+    const req = tx.objectStore(storeName).getAll();
     req.onsuccess = () => resolve((req.result as T[]) || []);
-    req.onerror = () => reject(req.error);
+    req.onerror = () => reject(req.error ?? new Error(`Failed to read ${storeName}`));
   });
 }
 
+/**
+ * Replaces the full contents of one store inside a single readwrite transaction. The clear and the
+ * puts commit together or not at all, so an interrupted write never leaves a half-empty store.
+ */
 async function replaceAllInStore<T extends { id: string }>(
-  storeName: string,
+  storeName: StoreName,
   items: T[],
 ): Promise<void> {
   const db = await openDatabase();
@@ -117,40 +114,137 @@ async function replaceAllInStore<T extends { id: string }>(
       store.put(item);
     }
     tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    tx.onerror = () => reject(tx.error ?? new Error(`Failed to write ${storeName}`));
+    tx.onabort = () => reject(tx.error ?? new Error(`Write to ${storeName} was aborted`));
+    // Commit now instead of waiting for the event loop, so the write lands even if the page is
+    // about to be hidden or unloaded.
+    tx.commit?.();
   });
 }
 
-const pendingWriteTimers = new Map<string, ReturnType<typeof setTimeout>>();
+// ---------------------------------------------------------------------------
+// Debounced write queue with explicit flush and error reporting
+// ---------------------------------------------------------------------------
 
-function scheduleDebouncedStoreWrite<T extends { id: string }>(
-  storeName: string,
-  items: T[],
-  delayMs = 220,
-): void {
-  const existing = pendingWriteTimers.get(storeName);
-  if (existing) {
-    clearTimeout(existing);
-  }
-  const timer = setTimeout(() => {
-    pendingWriteTimers.delete(storeName);
-    replaceAllInStore(storeName, items).catch(() => {
-      // Ignore write error in restricted environments
-    });
-  }, delayMs);
-  pendingWriteTimers.set(storeName, timer);
+export type PersistenceStatus =
+  | { state: "idle" }
+  | { state: "saving" }
+  | { state: "error"; message: string };
+
+type StatusListener = (status: PersistenceStatus) => void;
+
+interface PendingWrite {
+  timer: ReturnType<typeof setTimeout>;
+  run: () => Promise<void>;
 }
 
-export async function loadInitialVaultState(): Promise<{
+const pendingWrites = new Map<StoreName, PendingWrite>();
+const inFlightWrites = new Set<Promise<void>>();
+const statusListeners = new Set<StatusListener>();
+const writeErrors = new Map<StoreName, string>();
+
+function emitStatus(): void {
+  const firstError = writeErrors.values().next();
+  const status: PersistenceStatus = !firstError.done
+    ? { state: "error", message: firstError.value }
+    : pendingWrites.size > 0 || inFlightWrites.size > 0
+      ? { state: "saving" }
+      : { state: "idle" };
+  for (const listener of statusListeners) {
+    listener(status);
+  }
+}
+
+/** Subscribes to save status changes. Returns an unsubscribe function. */
+export function subscribePersistenceStatus(listener: StatusListener): () => void {
+  statusListeners.add(listener);
+  return () => {
+    statusListeners.delete(listener);
+  };
+}
+
+function startWrite(storeName: StoreName, run: () => Promise<void>): Promise<void> {
+  const write = run()
+    .then(() => {
+      writeErrors.delete(storeName);
+    })
+    .catch((err: unknown) => {
+      const detail = err instanceof Error ? err.message : String(err);
+      writeErrors.set(storeName, `Could not save ${storeName}: ${detail}`);
+      console.error("[ForgeVault] persistence failure", storeName, err);
+    })
+    .finally(() => {
+      inFlightWrites.delete(write);
+      emitStatus();
+    });
+  inFlightWrites.add(write);
+  emitStatus();
+  return write;
+}
+
+/**
+ * Discrete actions (save a prompt, create a folder, change a preference) use `delayMs = 0`: the
+ * write starts on the next tick, coalescing changes made in the same tick. Keystroke-driven
+ * stores (lesson and Markdown editors) use a short debounce so typing does not rewrite the store
+ * on every key.
+ */
+function scheduleDebouncedStoreWrite<T extends { id: string }>(
+  storeName: StoreName,
+  items: T[],
+  delayMs: number,
+): void {
+  const existing = pendingWrites.get(storeName);
+  if (existing) {
+    clearTimeout(existing.timer);
+  }
+  const run = () => replaceAllInStore(storeName, items);
+  const timer = setTimeout(() => {
+    pendingWrites.delete(storeName);
+    void startWrite(storeName, run);
+  }, delayMs);
+  pendingWrites.set(storeName, { timer, run });
+  emitStatus();
+}
+
+/**
+ * Starts every debounced write immediately and resolves when all writes have settled.
+ * Called when the window is hidden or closed so recent edits are not lost.
+ */
+export function flushPendingWrites(): Promise<void> {
+  for (const [storeName, pending] of pendingWrites) {
+    clearTimeout(pending.timer);
+    pendingWrites.delete(storeName);
+    void startWrite(storeName, pending.run);
+  }
+  return Promise.all(inFlightWrites).then(() => undefined);
+}
+
+export function hasPendingWrites(): boolean {
+  return pendingWrites.size > 0 || inFlightWrites.size > 0;
+}
+
+// ---------------------------------------------------------------------------
+// Load / save API
+// ---------------------------------------------------------------------------
+
+export interface VaultState {
+  promptFolders: PromptFolder[];
   prompts: PromptItem[];
   stacks: TechStackItem[];
   lessons: CodeLessonItem[];
   markdownDocs: MarkdownDocItem[];
   preferences: ThemePreferences;
   clipboardHistory: ClipboardHistoryEntry[];
-}> {
-  try {
-    const [prompts, stacks, lessons, markdownDocs, prefsArr, clipboardHistory] = await Promise.all([
+}
+
+/**
+ * Loads the vault from IndexedDB. Rejects when storage cannot be read: callers must show an
+ * error and must not write, because writing an empty state would replace the user's data.
+ */
+export async function loadInitialVaultState(): Promise<VaultState> {
+  const [promptFolders, prompts, stacks, lessons, markdownDocs, prefsArr, clipboardHistory] =
+    await Promise.all([
+      getAllFromStore<PromptFolder>(STORES.promptFolders),
       getAllFromStore<PromptItem>(STORES.prompts),
       getAllFromStore<TechStackItem>(STORES.stacks),
       getAllFromStore<CodeLessonItem>(STORES.lessons),
@@ -159,78 +253,55 @@ export async function loadInitialVaultState(): Promise<{
       getAllFromStore<ClipboardHistoryEntry>(STORES.clipboardHistory),
     ]);
 
-    const finalPrompts = prompts.map((p) => ({
+  const storedPref = prefsArr.find((p) => p.id === "theme")?.value;
+
+  const folderIds = new Set(promptFolders.map((f) => f.id));
+  return {
+    promptFolders: [...promptFolders].sort((a, b) => a.name.localeCompare(b.name)),
+    prompts: prompts.map((p) => ({
       ...p,
       tags: Array.isArray(p.tags) ? p.tags : [],
-    }));
-
-    const finalStacks = stacks.map((s) => ({
-      ...s,
-      tags: Array.isArray(s.tags) ? s.tags : [],
-    }));
-
-    const finalLessons = lessons.map((l) => ({
-      ...l,
-      tags: Array.isArray(l.tags) ? l.tags : [],
-    }));
-
-    const storedPref = prefsArr.find((p) => p.id === "theme")?.value;
-    const finalPreferences: ThemePreferences = storedPref
+      folderId: p.folderId && folderIds.has(p.folderId) ? p.folderId : null,
+    })),
+    stacks: stacks.map((s) => ({ ...s, tags: Array.isArray(s.tags) ? s.tags : [] })),
+    lessons: lessons.map((l) => ({ ...l, tags: Array.isArray(l.tags) ? l.tags : [] })),
+    markdownDocs,
+    preferences: storedPref
       ? { ...DEFAULT_THEME_PREFERENCES, ...storedPref }
-      : DEFAULT_THEME_PREFERENCES;
-
-    if (!storedPref) {
-      await replaceAllInStore(STORES.preferences, [{ id: "theme", value: finalPreferences }]);
-    }
-
-    const sortedClipboard = [...clipboardHistory].sort((a, b) =>
-      b.copiedAt.localeCompare(a.copiedAt),
-    );
-
-    return {
-      prompts: finalPrompts,
-      stacks: finalStacks,
-      lessons: finalLessons,
-      markdownDocs,
-      preferences: finalPreferences,
-      clipboardHistory: sortedClipboard,
-    };
-  } catch {
-    return {
-      prompts: [],
-      stacks: [],
-      lessons: [],
-      markdownDocs: [],
-      preferences: DEFAULT_THEME_PREFERENCES,
-      clipboardHistory: [],
-    };
-  }
+      : DEFAULT_THEME_PREFERENCES,
+    clipboardHistory: [...clipboardHistory].sort((a, b) => b.copiedAt.localeCompare(a.copiedAt)),
+  };
 }
 
+/** Clears every content store. Preferences are kept. Rejects if any store cannot be cleared. */
 export async function clearAllVaultDataInDB(): Promise<void> {
-  try {
-    for (const timer of pendingWriteTimers.values()) {
-      clearTimeout(timer);
-    }
-    pendingWriteTimers.clear();
-    await Promise.all([
-      replaceAllInStore(STORES.prompts, []),
-      replaceAllInStore(STORES.stacks, []),
-      replaceAllInStore(STORES.lessons, []),
-      replaceAllInStore(STORES.markdownDocs, []),
-      replaceAllInStore(STORES.clipboardHistory, []),
-    ]);
-  } catch {
-    // Ignore
+  for (const pending of pendingWrites.values()) {
+    clearTimeout(pending.timer);
   }
+  pendingWrites.clear();
+  await Promise.all(inFlightWrites);
+  await Promise.all([
+    replaceAllInStore(STORES.promptFolders, []),
+    replaceAllInStore(STORES.prompts, []),
+    replaceAllInStore(STORES.stacks, []),
+    replaceAllInStore(STORES.lessons, []),
+    replaceAllInStore(STORES.markdownDocs, []),
+    replaceAllInStore(STORES.clipboardHistory, []),
+  ]);
+  writeErrors.clear();
+  emitStatus();
+}
+
+export function savePromptFoldersToDB(folders: PromptFolder[]): void {
+  scheduleDebouncedStoreWrite(STORES.promptFolders, folders, 0);
 }
 
 export function savePromptsToDB(prompts: PromptItem[]): void {
-  scheduleDebouncedStoreWrite(STORES.prompts, prompts, 120);
+  scheduleDebouncedStoreWrite(STORES.prompts, prompts, 0);
 }
 
 export function saveStacksToDB(stacks: TechStackItem[]): void {
-  scheduleDebouncedStoreWrite(STORES.stacks, stacks, 120);
+  scheduleDebouncedStoreWrite(STORES.stacks, stacks, 0);
 }
 
 export function saveLessonsToDB(lessons: CodeLessonItem[]): void {
@@ -242,15 +313,11 @@ export function saveMarkdownDocsToDB(docs: MarkdownDocItem[]): void {
 }
 
 export function saveClipboardHistoryToDB(entries: ClipboardHistoryEntry[]): void {
-  scheduleDebouncedStoreWrite(STORES.clipboardHistory, entries, 120);
+  scheduleDebouncedStoreWrite(STORES.clipboardHistory, entries, 0);
 }
 
-export async function saveThemePreferencesToDB(preferences: ThemePreferences): Promise<void> {
-  try {
-    await replaceAllInStore(STORES.preferences, [{ id: "theme", value: preferences }]);
-  } catch {
-    // Ignore
-  }
+export function saveThemePreferencesToDB(preferences: ThemePreferences): void {
+  scheduleDebouncedStoreWrite(STORES.preferences, [{ id: "theme", value: preferences }], 0);
 }
 
 /**
@@ -293,6 +360,15 @@ export function extractTemplateVariables(
   });
 }
 
+export function escapeXmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
 function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -317,10 +393,13 @@ export function formatPromptPayload(
     resolved = resolved.replace(pattern, () => val);
   }
 
-  const tagsAttr = prompt.tags?.length ? ` tags="${prompt.tags.join(",")}"` : "";
-
   if (format === "xml") {
-    return `<prompt title="${prompt.title}" category="${prompt.category}" target_agent="${prompt.targetAgent}"${tagsAttr}>\n${resolved.trim()}\n</prompt>`;
+    // Attribute values are escaped so titles such as `A <B> & "C"` still produce well-formed XML.
+    // The body is left verbatim on purpose: prompts routinely contain their own XML-style tags.
+    const tagsAttr = prompt.tags?.length
+      ? ` tags="${escapeXmlAttribute(prompt.tags.join(","))}"`
+      : "";
+    return `<prompt title="${escapeXmlAttribute(prompt.title)}" category="${escapeXmlAttribute(prompt.category)}" target_agent="${escapeXmlAttribute(prompt.targetAgent)}"${tagsAttr}>\n${resolved.trim()}\n</prompt>`;
   }
 
   if (format === "markdown") {
@@ -353,23 +432,8 @@ export function estimateTokenCount(text: string): number {
   return Math.max(1, Math.ceil(text.length / 4));
 }
 
-export function downloadTextFile(
-  filename: string,
-  content: string,
-  mimeType = "text/markdown;charset=utf-8",
-): void {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
-}
-
 export function createVaultBackupBundle(state: {
+  promptFolders: PromptFolder[];
   prompts: PromptItem[];
   stacks: TechStackItem[];
   lessons: CodeLessonItem[];
@@ -377,8 +441,9 @@ export function createVaultBackupBundle(state: {
   preferences: ThemePreferences;
 }): VaultBackupBundle {
   return {
-    version: "2026.10.31",
+    version: BACKUP_FORMAT_VERSION,
     exportedAt: new Date().toISOString(),
+    promptFolders: state.promptFolders,
     prompts: state.prompts,
     stacks: state.stacks,
     lessons: state.lessons,

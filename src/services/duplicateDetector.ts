@@ -1,3 +1,4 @@
+import { newId } from "./ids";
 import { PromptItem, PromptVersionSnapshot, StackDependency, TechStackItem } from "../types/vault";
 import { extractTemplateVariables } from "./vaultStorage";
 
@@ -130,7 +131,7 @@ export function mergePromptItems(existing: PromptItem, incoming: PromptItem): Pr
   const previousVersions: PromptVersionSnapshot[] = [...(existing.versions || [])];
   if (normalizeText(existing.content) !== normalizeText(incoming.content)) {
     previousVersions.unshift({
-      id: `ver-merge-${Date.now()}`,
+      id: newId("ver-merge"),
       savedAt: new Date().toISOString(),
       content: existing.content,
       note: `Pre-merge snapshot before merging "${incoming.title || existing.title}"`,

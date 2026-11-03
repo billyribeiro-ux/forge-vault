@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
+import "../services/monacoSetup";
 import Editor from "@monaco-editor/react";
 import {
   Check,
@@ -14,7 +15,9 @@ import {
 } from "./icons";
 import { MarkdownDocItem, ThemePreferences } from "../types/vault";
 import { MarkdownRenderer } from "./MarkdownRenderer";
-import { downloadTextFile, estimateTokenCount } from "../services/vaultStorage";
+import { estimateTokenCount } from "../services/vaultStorage";
+import { describeSaveError, describeSaveResult, saveTextFile } from "../services/fileExport";
+import { newId } from "../services/ids";
 import { registerMaterial3MonacoThemes } from "../services/monacoTheme";
 
 interface MarkdownVaultViewProps {
@@ -45,9 +48,8 @@ export const MarkdownVaultView: React.FC<MarkdownVaultViewProps> = ({
   );
 
   const handleCreateNewDoc = () => {
-    const timestamp = Date.now();
     const newDoc: MarkdownDocItem = {
-      id: `md-${timestamp}`,
+      id: newId("md"),
       filename: `NOTES_${new Date().toISOString().slice(0, 10)}.md`,
       title: "Untitled Markdown Document",
       category: "Scratchpad",
@@ -77,7 +79,7 @@ export const MarkdownVaultView: React.FC<MarkdownVaultViewProps> = ({
       const content = typeof reader.result === "string" ? reader.result : "";
       const headingMatch = /^#\s+(.+)$/m.exec(content);
       const importedDoc: MarkdownDocItem = {
-        id: `md-${Date.now()}`,
+        id: newId("md"),
         filename: file.name.endsWith(".md") ? file.name : `${file.name}.md`,
         title: headingMatch ? headingMatch[1].trim() : file.name.replace(/\.md$/i, ""),
         category: "Architecture Note",
@@ -255,7 +257,11 @@ export const MarkdownVaultView: React.FC<MarkdownVaultViewProps> = ({
 
           <button
             type="button"
-            onClick={() => downloadTextFile(activeDoc.filename, activeDoc.content)}
+            onClick={() => {
+              saveTextFile(activeDoc.filename, activeDoc.content)
+                .then((result) => onNotify(describeSaveResult(activeDoc.filename, result)))
+                .catch((err: unknown) => onNotify(describeSaveError(activeDoc.filename, err)));
+            }}
             className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-medium bg-(--md-sys-color-surface-container-low) border border-(--md-sys-color-outline-variant) text-slate-700 dark:text-slate-200 hover:bg-(--md-sys-color-surface-container-high) transition-colors cursor-pointer"
           >
             <DownloadSimple className="w-3.5 h-3.5" />
@@ -449,7 +455,7 @@ export const MarkdownVaultView: React.FC<MarkdownVaultViewProps> = ({
                 }
                 options={{
                   fontSize: preferences.editorFontSize,
-                  fontFamily: "JetBrains Mono, monospace",
+                  fontFamily: "'JetBrains Mono Variable', ui-monospace, Menlo, monospace",
                   wordWrap: "on",
                   minimap: { enabled: false },
                   lineNumbers: preferences.editorLineNumbers ? "on" : "off",

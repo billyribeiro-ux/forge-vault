@@ -1,3 +1,4 @@
+import { newId } from "../services/ids";
 import React, { useMemo, useState } from "react";
 import {
   BracketsCurly,
@@ -21,7 +22,8 @@ import {
   X,
 } from "./icons";
 import { StackDependency, StackLayer, TechStackItem } from "../types/vault";
-import { downloadTextFile, normalizeTagLabel } from "../services/vaultStorage";
+import { normalizeTagLabel } from "../services/vaultStorage";
+import { describeSaveError, describeSaveResult, saveTextFile } from "../services/fileExport";
 import {
   DuplicateMatch,
   findStackDuplicates,
@@ -422,7 +424,7 @@ export const StacksView: React.FC<StacksViewProps> = ({
   const handleDuplicateStack = (stack: TechStackItem) => {
     const cloned: TechStackItem = {
       ...stack,
-      id: `stack-${Date.now()}`,
+      id: newId("stack"),
       name: `${stack.name} (Copy)`,
       copyCount: 0,
       updatedAt: new Date().toISOString(),
@@ -432,7 +434,7 @@ export const StacksView: React.FC<StacksViewProps> = ({
 
   const handleCreateNewStack = () => {
     const fresh: TechStackItem = {
-      id: `stack-${Date.now()}`,
+      id: newId("stack"),
       name: "",
       tagline: "",
       layer: "Full-Stack",
@@ -475,8 +477,7 @@ export const StacksView: React.FC<StacksViewProps> = ({
     return {
       ...editingStack,
       name: editingStack.name.trim(),
-      tagline:
-        editingStack.tagline.trim() || "Reusable stack blueprint for AI agent context injection.",
+      tagline: editingStack.tagline.trim(),
       tags: editingStack.tags || [],
       dependencies: parsedDeps,
       architectureRules: parsedRules,
@@ -579,31 +580,25 @@ export const StacksView: React.FC<StacksViewProps> = ({
     }
 
     const dateStamp = new Date().toISOString().slice(0, 10);
-    if (targetFormat === "markdown") {
-      const md = buildConsolidatedStacksMarkdown(targetStacks);
-      downloadTextFile(
-        `forgevault-stacks-bundle-${dateStamp}.md`,
-        md,
-        "text/markdown;charset=utf-8",
-      );
-      onNotify(
-        `Exported ${targetStacks.length} stack${
-          targetStacks.length === 1 ? "" : "s"
-        } to forgevault-stacks-bundle-${dateStamp}.md`,
-      );
-    } else {
-      const json = buildConsolidatedStacksJson(targetStacks);
-      downloadTextFile(
-        `forgevault-stacks-bundle-${dateStamp}.json`,
-        json,
-        "application/json;charset=utf-8",
-      );
-      onNotify(
-        `Exported ${targetStacks.length} stack${
-          targetStacks.length === 1 ? "" : "s"
-        } to forgevault-stacks-bundle-${dateStamp}.json`,
-      );
-    }
+    const isMarkdown = targetFormat === "markdown";
+    const fileName = `forgevault-stacks-bundle-${dateStamp}.${isMarkdown ? "md" : "json"}`;
+    const contents = isMarkdown
+      ? buildConsolidatedStacksMarkdown(targetStacks)
+      : buildConsolidatedStacksJson(targetStacks);
+    saveTextFile(
+      fileName,
+      contents,
+      isMarkdown ? "text/markdown;charset=utf-8" : "application/json;charset=utf-8",
+    )
+      .then((result) => {
+        const count = `${targetStacks.length} stack${targetStacks.length === 1 ? "" : "s"}`;
+        onNotify(
+          result.status === "cancelled"
+            ? describeSaveResult(fileName, result)
+            : `${describeSaveResult(fileName, result)} (${count})`,
+        );
+      })
+      .catch((err: unknown) => onNotify(describeSaveError(fileName, err)));
   };
 
   const handleCopyConsolidatedBundle = async () => {
