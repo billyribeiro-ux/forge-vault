@@ -1,4 +1,4 @@
-export type WorkspaceView = "prompts" | "stacks" | "lessons" | "markdown" | "tauri";
+export type WorkspaceView = "prompts" | "stacks" | "lessons" | "markdown" | "data";
 
 export type PromptCategory =
   | "System & Agent"
@@ -25,8 +25,17 @@ export interface PromptVersionSnapshot {
   note: string;
 }
 
+/** A user-created folder that groups prompts, e.g. "Frontend". */
+export interface PromptFolder {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
 export interface PromptItem {
   id: string;
+  /** Folder the prompt is filed in; `null`/absent means "Unfiled". */
+  folderId?: string | null;
   title: string;
   category: PromptCategory;
   targetAgent: TargetAgent;
@@ -133,6 +142,7 @@ export interface ClipboardHistoryEntry {
 export interface VaultBackupBundle {
   version: string;
   exportedAt: string;
+  promptFolders: PromptFolder[];
   prompts: PromptItem[];
   stacks: TechStackItem[];
   lessons: CodeLessonItem[];

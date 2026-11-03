@@ -166,7 +166,7 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
         e.preventDefault();
         const item = results[activeIndex];
         if (e.shiftKey) {
-          handleCopyItem(item);
+          void handleCopyItem(item); // errors are reported inside handleCopyItem
         } else {
           onNavigate(item.targetView, item.id);
           onClose();

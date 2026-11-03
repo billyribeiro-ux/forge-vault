@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { Suspense, lazy, useEffect, useState } from "react";
+import React, { Suspense, lazy, useEffect, useRef, useState } from "react";
 import {
   BookOpen,
   ClipboardText,
@@ -25,11 +25,11 @@ import {
   PromptItem,
   TechStackItem,
   ThemePreferences,
-  VaultBackupBundle,
   WorkspaceView,
 } from "./types/vault";
 import {
-  clearAllVaultDataInDB,
+  PersistenceStatus,
+  VaultState,
   estimateTokenCount,
   loadInitialVaultState,
   saveClipboardHistoryToDB,
@@ -38,7 +38,11 @@ import {
   savePromptsToDB,
   saveStacksToDB,
   saveThemePreferencesToDB,
+  subscribePersistenceStatus,
 } from "./services/vaultStorage";
+import { ParsedBackup } from "./services/backupBundle";
+import { installDesktopLifecycle, isMacDesktopShell } from "./services/desktopShell";
+import { newId } from "./services/ids";
 import { PromptsView } from "./components/PromptsView";
 import { CommandPaletteModal } from "./components/CommandPaletteModal";
 import { ThemeCustomizerModal } from "./components/ThemeCustomizerModal";
@@ -57,9 +61,9 @@ const MarkdownVaultView = lazy(() =>
     default: m.MarkdownVaultView,
   })),
 );
-const TauriPortabilityView = lazy(() =>
-  import("./components/TauriPortabilityView").then((m) => ({
-    default: m.TauriPortabilityView,
+const DataBackupView = lazy(() =>
+  import("./components/DataBackupView").then((m) => ({
+    default: m.DataBackupView,
   })),
 );
 
@@ -76,28 +80,83 @@ export default function App() {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [isClipboardDrawerOpen, setIsClipboardDrawerOpen] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ id: number; message: string; undo?: () => void } | null>(
+    null,
+  );
   const [triggerNewPrompt, setTriggerNewPrompt] = useState(false);
 
-  // Hydrate from local-first IndexedDB on initial mount
+  const [hydration, setHydration] = useState<
+    { state: "loading" } | { state: "ready" } | { state: "error"; message: string }
+  >({ state: "loading" });
+  const [saveStatus, setSaveStatus] = useState<PersistenceStatus>({ state: "idle" });
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  // The exact arrays read from storage. Persistence effects skip them so a load is not echoed
+  // back as a write.
+  const loadedRef = useRef<VaultState | null>(null);
+
+  // Hydrate from IndexedDB. Nothing is written until this succeeds, so a failed read can never
+  // overwrite the stored vault with an empty one.
   useEffect(() => {
     let mounted = true;
-    loadInitialVaultState().then((initial) => {
-      if (!mounted) return;
-      setPrompts(initial.prompts);
-      setStacks(initial.stacks);
-      setLessons(initial.lessons);
-      if (initial.lessons.length > 0) {
-        setActiveLessonId(initial.lessons[0].id);
-      }
-      setMarkdownDocs(initial.markdownDocs);
-      setPreferences(initial.preferences);
-      setClipboardHistory(initial.clipboardHistory);
-    });
+    setHydration({ state: "loading" });
+    loadInitialVaultState()
+      .then((initial) => {
+        if (!mounted) return;
+        loadedRef.current = initial;
+        setPrompts(initial.prompts);
+        setStacks(initial.stacks);
+        setLessons(initial.lessons);
+        setActiveLessonId(initial.lessons[0]?.id ?? "");
+        setMarkdownDocs(initial.markdownDocs);
+        setPreferences(initial.preferences);
+        setClipboardHistory(initial.clipboardHistory);
+        setHydration({ state: "ready" });
+      })
+      .catch((err: unknown) => {
+        if (!mounted) return;
+        console.error("[ForgeVault] failed to load vault", err);
+        setHydration({
+          state: "error",
+          message: err instanceof Error ? err.message : String(err),
+        });
+      });
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [loadAttempt]);
+
+  const isReady = hydration.state === "ready";
+
+  // Single persistence path: each collection is written whenever its state changes after load.
+  useEffect(() => {
+    if (isReady && prompts !== loadedRef.current?.prompts) savePromptsToDB(prompts);
+  }, [isReady, prompts]);
+  useEffect(() => {
+    if (isReady && stacks !== loadedRef.current?.stacks) saveStacksToDB(stacks);
+  }, [isReady, stacks]);
+  useEffect(() => {
+    if (isReady && lessons !== loadedRef.current?.lessons) saveLessonsToDB(lessons);
+  }, [isReady, lessons]);
+  useEffect(() => {
+    if (isReady && markdownDocs !== loadedRef.current?.markdownDocs) {
+      saveMarkdownDocsToDB(markdownDocs);
+    }
+  }, [isReady, markdownDocs]);
+  useEffect(() => {
+    if (isReady && preferences !== loadedRef.current?.preferences) {
+      saveThemePreferencesToDB(preferences);
+    }
+  }, [isReady, preferences]);
+  useEffect(() => {
+    if (isReady && clipboardHistory !== loadedRef.current?.clipboardHistory) {
+      saveClipboardHistoryToDB(clipboardHistory);
+    }
+  }, [isReady, clipboardHistory]);
+
+  useEffect(() => subscribePersistenceStatus(setSaveStatus), []);
+
+  // Flush debounced writes when the window is hidden, closed, or the app quits.
+  useEffect(() => installDesktopLifecycle(), []);
 
   // Sync Light/Dark mode, surface contrast, and custom accent CSS variables to document root
   useEffect(() => {
@@ -124,8 +183,8 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleGlobalKeyDown);
   }, []);
 
-  const showNotification = (msg: string) => {
-    setToastMessage(msg);
+  const showNotification = (message: string, undo?: () => void) => {
+    setToast({ id: Date.now(), message, undo });
   };
 
   const handleRecordClipboard = (
@@ -134,48 +193,51 @@ export default function App() {
     sourceKind: ClipboardHistoryEntry["sourceKind"],
   ) => {
     const newEntry: ClipboardHistoryEntry = {
-      id: `clip-${Date.now()}`,
+      id: newId("clip"),
       label,
       sourceKind,
       payload,
       tokens: estimateTokenCount(payload),
       copiedAt: new Date().toISOString(),
     };
-    setClipboardHistory((prev) => {
-      const next = [newEntry, ...prev.slice(0, 19)];
-      saveClipboardHistoryToDB(next);
-      return next;
-    });
+    setClipboardHistory((prev) => [newEntry, ...prev.slice(0, 19)]);
   };
 
   useEffect(() => {
-    if (!toastMessage) return;
-    const timer = setTimeout(() => setToastMessage(null), 2400);
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), toast.undo ? 6000 : 2600);
     return () => clearTimeout(timer);
-  }, [toastMessage]);
+  }, [toast]);
+
+  const isMacShell = isMacDesktopShell();
 
   // Prompt handlers
   const handleSavePrompt = (prompt: PromptItem) => {
     setPrompts((prev) => {
       const exists = prev.some((p) => p.id === prompt.id);
       const next = exists ? prev.map((p) => (p.id === prompt.id ? prompt : p)) : [prompt, ...prev];
-      savePromptsToDB(next);
       return next;
     });
   };
 
   const handleDeletePrompt = (id: string) => {
-    setPrompts((prev) => {
-      const next = prev.filter((p) => p.id !== id);
-      savePromptsToDB(next);
-      return next;
+    const index = prompts.findIndex((p) => p.id === id);
+    if (index === -1) return;
+    const removed = prompts[index];
+    setPrompts((prev) => prev.filter((p) => p.id !== id));
+    showNotification(`Deleted prompt "${removed.title}"`, () => {
+      setPrompts((prev) => {
+        if (prev.some((p) => p.id === removed.id)) return prev;
+        const next = [...prev];
+        next.splice(Math.min(index, next.length), 0, removed);
+        return next;
+      });
     });
   };
 
   const handleToggleFavoritePrompt = (id: string) => {
     setPrompts((prev) => {
       const next = prev.map((p) => (p.id === id ? { ...p, isFavorite: !p.isFavorite } : p));
-      savePromptsToDB(next);
       return next;
     });
   };
@@ -183,7 +245,6 @@ export default function App() {
   const handleIncrementPromptCopy = (id: string) => {
     setPrompts((prev) => {
       const next = prev.map((p) => (p.id === id ? { ...p, copyCount: p.copyCount + 1 } : p));
-      savePromptsToDB(next);
       return next;
     });
   };
@@ -193,7 +254,6 @@ export default function App() {
     setStacks((prev) => {
       const exists = prev.some((s) => s.id === stack.id);
       const next = exists ? prev.map((s) => (s.id === stack.id ? stack : s)) : [stack, ...prev];
-      saveStacksToDB(next);
       return next;
     });
   };
@@ -201,7 +261,6 @@ export default function App() {
   const handleDeleteStack = (id: string) => {
     setStacks((prev) => {
       const next = prev.filter((s) => s.id !== id);
-      saveStacksToDB(next);
       return next;
     });
   };
@@ -209,7 +268,6 @@ export default function App() {
   const handleToggleFavoriteStack = (id: string) => {
     setStacks((prev) => {
       const next = prev.map((s) => (s.id === id ? { ...s, isFavorite: !s.isFavorite } : s));
-      saveStacksToDB(next);
       return next;
     });
   };
@@ -217,7 +275,6 @@ export default function App() {
   const handleIncrementStackCopy = (id: string) => {
     setStacks((prev) => {
       const next = prev.map((s) => (s.id === id ? { ...s, copyCount: s.copyCount + 1 } : s));
-      saveStacksToDB(next);
       return next;
     });
   };
@@ -227,7 +284,6 @@ export default function App() {
     setLessons((prev) => {
       const exists = prev.some((l) => l.id === lesson.id);
       const next = exists ? prev.map((l) => (l.id === lesson.id ? lesson : l)) : [lesson, ...prev];
-      saveLessonsToDB(next);
       return next;
     });
     if (!activeLessonId) {
@@ -236,14 +292,11 @@ export default function App() {
   };
 
   const handleDeleteLesson = (id: string) => {
-    setLessons((prev) => {
-      const next = prev.filter((l) => l.id !== id);
-      saveLessonsToDB(next);
-      if (activeLessonId === id) {
-        setActiveLessonId(next[0]?.id || "");
-      }
-      return next;
-    });
+    const remaining = lessons.filter((l) => l.id !== id);
+    setLessons(remaining);
+    if (activeLessonId === id) {
+      setActiveLessonId(remaining[0]?.id ?? "");
+    }
   };
 
   // Markdown doc handlers
@@ -251,7 +304,6 @@ export default function App() {
     setMarkdownDocs((prev) => {
       const exists = prev.some((d) => d.id === doc.id);
       const next = exists ? prev.map((d) => (d.id === doc.id ? doc : d)) : [doc, ...prev];
-      saveMarkdownDocsToDB(next);
       return next;
     });
   };
@@ -259,44 +311,25 @@ export default function App() {
   const handleDeleteMarkdownDoc = (id: string) => {
     setMarkdownDocs((prev) => {
       const next = prev.filter((d) => d.id !== id);
-      saveMarkdownDocsToDB(next);
       return next;
     });
   };
 
   // Theme & Preference handler
   const handleUpdatePreferences = (partial: Partial<ThemePreferences>) => {
-    setPreferences((prev) => {
-      const updated = { ...prev, ...partial };
-      saveThemePreferencesToDB(updated);
-      return updated;
-    });
+    setPreferences((prev) => ({ ...prev, ...partial }));
   };
 
-  // Bundle Import & Clear handlers
-  const handleImportBundle = (bundle: VaultBackupBundle) => {
-    if (bundle.prompts) {
-      setPrompts(bundle.prompts);
-      savePromptsToDB(bundle.prompts);
+  // Restore replaces only the collections present in the validated backup.
+  const handleImportBundle = (backup: ParsedBackup) => {
+    if (backup.prompts) setPrompts(backup.prompts);
+    if (backup.stacks) setStacks(backup.stacks);
+    if (backup.lessons) {
+      setLessons(backup.lessons);
+      setActiveLessonId(backup.lessons[0]?.id ?? "");
     }
-    if (bundle.stacks) {
-      setStacks(bundle.stacks);
-      saveStacksToDB(bundle.stacks);
-    }
-    if (bundle.lessons) {
-      setLessons(bundle.lessons);
-      setActiveLessonId(bundle.lessons[0]?.id || "");
-      saveLessonsToDB(bundle.lessons);
-    }
-    if (bundle.markdownDocs) {
-      setMarkdownDocs(bundle.markdownDocs);
-      saveMarkdownDocsToDB(bundle.markdownDocs);
-    }
-    if (bundle.preferences) {
-      const mergedPref = { ...DEFAULT_THEME_PREFERENCES, ...bundle.preferences };
-      setPreferences(mergedPref);
-      saveThemePreferencesToDB(mergedPref);
-    }
+    if (backup.markdownDocs) setMarkdownDocs(backup.markdownDocs);
+    if (backup.preferences) setPreferences(backup.preferences);
   };
 
   const handleClearVault = () => {
@@ -306,7 +339,6 @@ export default function App() {
     setActiveLessonId("");
     setMarkdownDocs([]);
     setClipboardHistory([]);
-    clearAllVaultDataInDB();
     showNotification("Cleared all vault collections");
   };
 
@@ -360,10 +392,9 @@ export default function App() {
       icon: FileText,
     },
     {
-      id: "tauri",
-      label: "Tauri & Backup",
-      shortLabel: "Tauri & Export",
-      count: "IDB",
+      id: "data",
+      label: "Backup & Data",
+      shortLabel: "Backup",
       icon: Database,
     },
   ];
@@ -373,7 +404,12 @@ export default function App() {
       className={`min-h-screen flex flex-col ${canvasBgClass} text-slate-900 dark:text-slate-100 transition-colors duration-200`}
     >
       {/* Google Material 3 (M3) Top App Bar */}
-      <header className="flex items-center justify-between gap-4 px-5 py-3 bg-(--md-sys-color-surface)/92 backdrop-blur-md border-b border-(--md-sys-color-outline-variant) sticky top-0 z-30">
+      <header
+        data-tauri-drag-region
+        className={`flex items-center justify-between gap-4 pr-5 py-3 bg-(--md-sys-color-surface)/92 backdrop-blur-md border-b border-(--md-sys-color-outline-variant) sticky top-0 z-30 ${
+          isMacShell ? "pl-[84px]" : "pl-5"
+        }`}
+      >
         {/* Zone 1: Material 3 Brand Emblem */}
         <a
           href="#top"
@@ -389,13 +425,15 @@ export default function App() {
           >
             <Sparkle className="w-4 h-4" />
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2" data-tauri-drag-region>
             <span>ForgeVault</span>
             <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold m3-primary-container">
               M3 Studio
             </span>
           </div>
         </a>
+
+        <SaveStatusIndicator status={saveStatus} />
 
         {/* Zone 2: Material 3 Pill Navigation Destinations */}
         <nav className="hidden xl:flex items-center gap-1.5 p-1 rounded-full bg-(--md-sys-color-surface-container-low) border border-(--md-sys-color-outline-variant)">
@@ -660,81 +698,114 @@ export default function App() {
             ))}
           </div>
 
-          <Suspense
-            fallback={
-              <div className="p-12 text-center m3-card text-xs font-mono text-slate-500 dark:text-slate-400">
-                Loading Material 3 Studio workspace...
-              </div>
-            }
-          >
-            {activeView === "prompts" && (
-              <PromptsView
-                prompts={prompts}
-                defaultCopyFormat={preferences.defaultCopyFormat}
-                accentHex={preferences.accentHex}
-                onSavePrompt={handleSavePrompt}
-                onDeletePrompt={handleDeletePrompt}
-                onToggleFavorite={handleToggleFavoritePrompt}
-                onIncrementCopy={handleIncrementPromptCopy}
-                onRecordClipboard={handleRecordClipboard}
-                onNotify={showNotification}
-                externalCreateTrigger={triggerNewPrompt}
-                onClearExternalCreate={() => setTriggerNewPrompt(false)}
-              />
-            )}
+          {hydration.state === "loading" && (
+            <div
+              role="status"
+              className="p-12 text-center m3-card text-xs text-slate-500 dark:text-slate-400"
+            >
+              Opening your vault…
+            </div>
+          )}
 
-            {activeView === "stacks" && (
-              <StacksView
-                stacks={stacks}
-                accentHex={preferences.accentHex}
-                onSaveStack={handleSaveStack}
-                onDeleteStack={handleDeleteStack}
-                onToggleFavorite={handleToggleFavoriteStack}
-                onIncrementCopy={handleIncrementStackCopy}
-                onRecordClipboard={handleRecordClipboard}
-                onNotify={showNotification}
-              />
-            )}
+          {hydration.state === "error" && (
+            <div role="alert" className="p-8 m3-card border border-rose-500/50 space-y-3 max-w-2xl">
+              <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                Your vault could not be opened
+              </h1>
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                ForgeVault could not read its local database, so nothing is shown and nothing will
+                be saved until it loads. Your existing data has not been changed.
+              </p>
+              <p className="text-xs font-mono text-rose-600 dark:text-rose-400 break-all">
+                {hydration.message}
+              </p>
+              <button
+                type="button"
+                onClick={() => setLoadAttempt((n) => n + 1)}
+                style={{ backgroundColor: preferences.accentHex }}
+                className="px-4 py-2 text-xs font-semibold rounded-full text-white cursor-pointer"
+              >
+                Try again
+              </button>
+            </div>
+          )}
 
-            {activeView === "lessons" && (
-              <LessonsSplitStudio
-                lessons={lessons}
-                activeLessonId={activeLessonId}
-                preferences={preferences}
-                onSelectLesson={setActiveLessonId}
-                onSaveLesson={handleSaveLesson}
-                onDeleteLesson={handleDeleteLesson}
-                onUpdatePreferences={handleUpdatePreferences}
-                onRecordClipboard={handleRecordClipboard}
-                onNotify={showNotification}
-              />
-            )}
+          {isReady && (
+            <Suspense
+              fallback={
+                <div className="p-12 text-center m3-card text-xs font-mono text-slate-500 dark:text-slate-400">
+                  Loading Material 3 Studio workspace...
+                </div>
+              }
+            >
+              {activeView === "prompts" && (
+                <PromptsView
+                  prompts={prompts}
+                  defaultCopyFormat={preferences.defaultCopyFormat}
+                  accentHex={preferences.accentHex}
+                  onSavePrompt={handleSavePrompt}
+                  onDeletePrompt={handleDeletePrompt}
+                  onToggleFavorite={handleToggleFavoritePrompt}
+                  onIncrementCopy={handleIncrementPromptCopy}
+                  onRecordClipboard={handleRecordClipboard}
+                  onNotify={showNotification}
+                  externalCreateTrigger={triggerNewPrompt}
+                  onClearExternalCreate={() => setTriggerNewPrompt(false)}
+                />
+              )}
 
-            {activeView === "markdown" && (
-              <MarkdownVaultView
-                docs={markdownDocs}
-                preferences={preferences}
-                onSaveDoc={handleSaveMarkdownDoc}
-                onDeleteDoc={handleDeleteMarkdownDoc}
-                onRecordClipboard={handleRecordClipboard}
-                onNotify={showNotification}
-              />
-            )}
+              {activeView === "stacks" && (
+                <StacksView
+                  stacks={stacks}
+                  accentHex={preferences.accentHex}
+                  onSaveStack={handleSaveStack}
+                  onDeleteStack={handleDeleteStack}
+                  onToggleFavorite={handleToggleFavoriteStack}
+                  onIncrementCopy={handleIncrementStackCopy}
+                  onRecordClipboard={handleRecordClipboard}
+                  onNotify={showNotification}
+                />
+              )}
 
-            {activeView === "tauri" && (
-              <TauriPortabilityView
-                prompts={prompts}
-                stacks={stacks}
-                lessons={lessons}
-                markdownDocs={markdownDocs}
-                preferences={preferences}
-                onImportBundle={handleImportBundle}
-                onResetToDefaults={handleClearVault}
-                onRecordClipboard={handleRecordClipboard}
-                onNotify={showNotification}
-              />
-            )}
-          </Suspense>
+              {activeView === "lessons" && (
+                <LessonsSplitStudio
+                  lessons={lessons}
+                  activeLessonId={activeLessonId}
+                  preferences={preferences}
+                  onSelectLesson={setActiveLessonId}
+                  onSaveLesson={handleSaveLesson}
+                  onDeleteLesson={handleDeleteLesson}
+                  onUpdatePreferences={handleUpdatePreferences}
+                  onRecordClipboard={handleRecordClipboard}
+                  onNotify={showNotification}
+                />
+              )}
+
+              {activeView === "markdown" && (
+                <MarkdownVaultView
+                  docs={markdownDocs}
+                  preferences={preferences}
+                  onSaveDoc={handleSaveMarkdownDoc}
+                  onDeleteDoc={handleDeleteMarkdownDoc}
+                  onRecordClipboard={handleRecordClipboard}
+                  onNotify={showNotification}
+                />
+              )}
+
+              {activeView === "data" && (
+                <DataBackupView
+                  prompts={prompts}
+                  stacks={stacks}
+                  lessons={lessons}
+                  markdownDocs={markdownDocs}
+                  preferences={preferences}
+                  onImportBundle={handleImportBundle}
+                  onClearVault={handleClearVault}
+                  onNotify={showNotification}
+                />
+              )}
+            </Suspense>
+          )}
         </main>
       </div>
 
@@ -767,19 +838,55 @@ export default function App() {
         onClose={() => setIsClipboardDrawerOpen(false)}
         entries={clipboardHistory}
         accentHex={preferences.accentHex}
-        onClearHistory={() => {
-          setClipboardHistory([]);
-          saveClipboardHistoryToDB([]);
-        }}
+        onClearHistory={() => setClipboardHistory([])}
         onNotify={showNotification}
       />
 
-      {/* Non-Intrusive Feedback Toast */}
-      {toastMessage && (
-        <div className="fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-xs font-medium shadow-lg border border-slate-700 dark:border-slate-300 transition-all">
-          {toastMessage}
-        </div>
-      )}
+      {/* Feedback toast. The live region stays mounted so screen readers announce updates. */}
+      <div role="status" aria-live="polite" className="fixed bottom-5 right-5 z-50">
+        {toast && (
+          <div
+            key={toast.id}
+            className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-xs font-medium shadow-lg border border-slate-700 dark:border-slate-300 max-w-md"
+          >
+            <span className="break-words">{toast.message}</span>
+            {toast.undo && (
+              <button
+                type="button"
+                onClick={() => {
+                  toast.undo?.();
+                  setToast(null);
+                }}
+                className="shrink-0 font-semibold underline underline-offset-2 cursor-pointer"
+              >
+                Undo
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     </div>
+  );
+}
+
+function SaveStatusIndicator({ status }: { status: PersistenceStatus }) {
+  if (status.state === "error") {
+    return (
+      <span
+        role="alert"
+        title={status.message}
+        className="hidden md:inline text-[11px] font-medium text-rose-600 dark:text-rose-400 truncate max-w-64"
+      >
+        Not saved: {status.message}
+      </span>
+    );
+  }
+  return (
+    <span
+      aria-live="polite"
+      className="hidden md:inline text-[11px] text-slate-500 dark:text-slate-400 font-mono"
+    >
+      {status.state === "saving" ? "Saving…" : "Saved"}
+    </span>
   );
 }

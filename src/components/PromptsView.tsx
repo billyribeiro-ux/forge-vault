@@ -1,3 +1,4 @@
+import { newId } from "../services/ids";
 import React, { useMemo, useState } from "react";
 import {
   ArrowCounterClockwise,
@@ -253,7 +254,7 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
     setModalTagInput("");
     setDuplicateAlertIntercepted(false);
     setEditingPrompt({
-      id: `prompt-${Date.now()}`,
+      id: newId("prompt"),
       title: "",
       category: "Architecture",
       targetAgent: "Argon",
@@ -274,7 +275,7 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
     setDuplicateAlertIntercepted(true);
     setEditingPrompt({
       ...prompt,
-      id: `prompt-${Date.now()}`,
+      id: newId("prompt"),
       title: `${prompt.title} (Copy)`,
       copyCount: 0,
       updatedAt: new Date().toISOString(),
@@ -309,7 +310,7 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
 
     if (existingPrompt && existingPrompt.content !== promptToSave.content) {
       previousVersions.unshift({
-        id: `ver-${Date.now()}`,
+        id: newId("ver"),
         savedAt: new Date().toISOString(),
         content: existingPrompt.content,
         note: versionNote.trim() || `Snapshot before edit (${new Date().toLocaleTimeString()})`,
@@ -719,7 +720,6 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
                         type="button"
                         onClick={() => {
                           onDeletePrompt(prompt.id);
-                          onNotify(`Deleted prompt "${prompt.title}"`);
                         }}
                         title="Delete Prompt"
                         className="p-1.5 rounded-md text-slate-400 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"

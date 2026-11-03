@@ -1,4 +1,6 @@
+import { newId } from "../services/ids";
 import React, { useMemo, useState } from "react";
+import "../services/monacoSetup";
 import Editor, { DiffEditor } from "@monaco-editor/react";
 import {
   ArrowLineLeft,
@@ -23,7 +25,8 @@ import {
 } from "./icons";
 import { CodeLessonItem, LessonFile, MonacoLanguage, ThemePreferences } from "../types/vault";
 import { MarkdownRenderer, extractMarkdownHeadings } from "./MarkdownRenderer";
-import { downloadTextFile, estimateTokenCount, normalizeTagLabel } from "../services/vaultStorage";
+import { estimateTokenCount, normalizeTagLabel } from "../services/vaultStorage";
+import { describeSaveError, describeSaveResult, saveTextFile } from "../services/fileExport";
 import { registerMaterial3MonacoThemes } from "../services/monacoTheme";
 import { SandboxExecutionResult, executeInSandboxWorker } from "../services/sandboxRunner";
 
@@ -143,11 +146,11 @@ export const LessonsSplitStudio: React.FC<LessonsSplitStudioProps> = ({
   const handleCreateNewLesson = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newLessonTitle.trim()) return;
-    const initialFileId = `file-${Date.now()}`;
+    const initialFileId = newId("file");
     const parsedTags = newLessonTagsInput.split(",").map(normalizeTagLabel).filter(Boolean);
 
     const newLesson: CodeLessonItem = {
-      id: `lesson-${Date.now()}`,
+      id: newId("lesson"),
       title: newLessonTitle.trim(),
       topic: newLessonTopic.trim() || "General",
       difficulty: newLessonDifficulty,
@@ -457,7 +460,7 @@ export const LessonsSplitStudio: React.FC<LessonsSplitStudioProps> = ({
 
     const detectedLang = inferLanguageFromFilename(cleanName);
     const createdFile: LessonFile = {
-      id: `file-${Date.now()}`,
+      id: newId("file"),
       filename: cleanName,
       language: detectedLang,
       content: `// ${cleanName}\n\n`,
@@ -554,8 +557,10 @@ export const LessonsSplitStudio: React.FC<LessonsSplitStudioProps> = ({
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/(^-|-$)/g, "");
-    downloadTextFile(`${safeSlug || "lesson"}.md`, fullMd);
-    onNotify(`Downloaded ${safeSlug}.md`);
+    const fileName = `${safeSlug || "lesson"}.md`;
+    saveTextFile(fileName, fullMd)
+      .then((result) => onNotify(describeSaveResult(fileName, result)))
+      .catch((err: unknown) => onNotify(describeSaveError(fileName, err)));
   };
 
   const leftColSpan =
@@ -945,7 +950,7 @@ export const LessonsSplitStudio: React.FC<LessonsSplitStudioProps> = ({
                   onChange={handleMarkdownNotesChange}
                   options={{
                     fontSize: preferences.editorFontSize,
-                    fontFamily: "JetBrains Mono, monospace",
+                    fontFamily: "'JetBrains Mono Variable', ui-monospace, Menlo, monospace",
                     wordWrap: "on",
                     minimap: { enabled: false },
                     lineNumbers: preferences.editorLineNumbers ? "on" : "off",
@@ -1204,7 +1209,7 @@ export const LessonsSplitStudio: React.FC<LessonsSplitStudioProps> = ({
                   onChange={handleCodeChange}
                   options={{
                     fontSize: preferences.editorFontSize,
-                    fontFamily: "JetBrains Mono, monospace",
+                    fontFamily: "'JetBrains Mono Variable', ui-monospace, Menlo, monospace",
                     fontLigatures: true,
                     wordWrap: preferences.editorWordWrap ? "on" : "off",
                     minimap: { enabled: preferences.editorMinimap },
@@ -1227,7 +1232,7 @@ export const LessonsSplitStudio: React.FC<LessonsSplitStudioProps> = ({
                   theme={preferences.mode === "dark" ? "forgevault-m3-dark" : "forgevault-m3-light"}
                   options={{
                     fontSize: preferences.editorFontSize,
-                    fontFamily: "JetBrains Mono, monospace",
+                    fontFamily: "'JetBrains Mono Variable', ui-monospace, Menlo, monospace",
                     renderSideBySide: true,
                     readOnly: true,
                     scrollBeyondLastLine: false,

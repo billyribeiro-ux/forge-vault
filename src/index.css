@@ -25,9 +25,12 @@
 @layer base {
   :root {
     --font-display:
-      "Plus Jakarta Sans", "Roboto Flex", -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-sans: "Roboto Flex", "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      "Plus Jakarta Sans Variable", "Roboto Flex Variable", -apple-system, BlinkMacSystemFont,
+      sans-serif;
+    --font-sans:
+      "Roboto Flex Variable", "DM Sans Variable", -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono:
+      "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
     /* Dynamic Seed Accent */
     --accent-color: #4285f4;

@@ -25,16 +25,16 @@ export function transpileTypeScriptToJS(tsCode: string): string {
       // Remove generic type parameters on functions e.g. function foo<T extends string>(
       .replace(/\bfunction\s+(\w+)\s*<[^>]+>\s*\(/g, "function $1(")
       // Remove return type annotations before `{` or `=>`
-      .replace(/\)\s*:\s*[A-Za-z0-9_<>\[\]|&\s.,?]+(?=\s*(?:\{|=>))/g, ")")
+      .replace(/\)\s*:\s*[A-Za-z0-9_<>[\]|&\s.,?]+(?=\s*(?:\{|=>))/g, ")")
       // Remove variable type annotations e.g. const x: Record<string, number> =
       .replace(/\b(const|let|var)\s+(\w+)\s*:\s*[^=]+=/g, "$1 $2 =")
       // Remove parameter type annotations e.g. (a: string, b?: number)
       .replace(
-        /(\w+)\??\s*:\s*(?:Record<[^>]+>|Array<[^>]+>|Promise<[^>]+>|[A-Za-z0-9_\[\]|&<>]+)(?=\s*[,)=])/g,
+        /(\w+)\??\s*:\s*(?:Record<[^>]+>|Array<[^>]+>|Promise<[^>]+>|[A-Za-z0-9_[\]|&<>]+)(?=\s*[,)=])/g,
         "$1",
       )
       // Remove `as Type` assertions
-      .replace(/\s+as\s+(?:const|[A-Za-z0-9_<>\[\]|&]+)/g, "")
+      .replace(/\s+as\s+(?:const|[A-Za-z0-9_<>[\]|&]+)/g, "")
   );
 }
 
