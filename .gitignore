@@ -10,3 +10,5 @@ coverage/
 .aistudio/
 public/forge-vault.tar.gz
 dev/
+src-tauri/target/
+src-tauri/gen/
