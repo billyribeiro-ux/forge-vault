@@ -26,6 +26,12 @@ vp build
 vp preview
 ```
 
+`vp test` currently exits with "No test files found" because the repo has no tests yet.
+
+## Upgrading Vite+
+
+The toolchain is Vite+ 1.4.0 (latest stable), pinned in `pnpm-workspace.yaml`. Upgrade steps and the migration command are in [AGENTS.md](AGENTS.md#upgrading-vite).
+
 ## macOS Desktop Build (Tauri v2)
 
 Uses the `dev`/`build` package scripts (via Vite+). Requires Rust (`rustup`) installed on macOS:
