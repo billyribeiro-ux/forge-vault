@@ -116,6 +116,9 @@ async function replaceAllInStore<T extends { id: string }>(
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error ?? new Error(`Failed to write ${storeName}`));
     tx.onabort = () => reject(tx.error ?? new Error(`Write to ${storeName} was aborted`));
+    // Commit now instead of waiting for the event loop, so the write lands even if the page is
+    // about to be hidden or unloaded.
+    tx.commit?.();
   });
 }
 
@@ -179,6 +182,12 @@ function startWrite(storeName: StoreName, run: () => Promise<void>): Promise<voi
   return write;
 }
 
+/**
+ * Discrete actions (save a prompt, create a folder, change a preference) use `delayMs = 0`: the
+ * write starts on the next tick, coalescing changes made in the same tick. Keystroke-driven
+ * stores (lesson and Markdown editors) use a short debounce so typing does not rewrite the store
+ * on every key.
+ */
 function scheduleDebouncedStoreWrite<T extends { id: string }>(
   storeName: StoreName,
   items: T[],
@@ -235,14 +244,14 @@ export interface VaultState {
 export async function loadInitialVaultState(): Promise<VaultState> {
   const [promptFolders, prompts, stacks, lessons, markdownDocs, prefsArr, clipboardHistory] =
     await Promise.all([
-    getAllFromStore<PromptFolder>(STORES.promptFolders),
-    getAllFromStore<PromptItem>(STORES.prompts),
-    getAllFromStore<TechStackItem>(STORES.stacks),
-    getAllFromStore<CodeLessonItem>(STORES.lessons),
-    getAllFromStore<MarkdownDocItem>(STORES.markdownDocs),
-    getAllFromStore<{ id: string; value: ThemePreferences }>(STORES.preferences),
-    getAllFromStore<ClipboardHistoryEntry>(STORES.clipboardHistory),
-  ]);
+      getAllFromStore<PromptFolder>(STORES.promptFolders),
+      getAllFromStore<PromptItem>(STORES.prompts),
+      getAllFromStore<TechStackItem>(STORES.stacks),
+      getAllFromStore<CodeLessonItem>(STORES.lessons),
+      getAllFromStore<MarkdownDocItem>(STORES.markdownDocs),
+      getAllFromStore<{ id: string; value: ThemePreferences }>(STORES.preferences),
+      getAllFromStore<ClipboardHistoryEntry>(STORES.clipboardHistory),
+    ]);
 
   const storedPref = prefsArr.find((p) => p.id === "theme")?.value;
 
@@ -284,15 +293,15 @@ export async function clearAllVaultDataInDB(): Promise<void> {
 }
 
 export function savePromptFoldersToDB(folders: PromptFolder[]): void {
-  scheduleDebouncedStoreWrite(STORES.promptFolders, folders, 60);
+  scheduleDebouncedStoreWrite(STORES.promptFolders, folders, 0);
 }
 
 export function savePromptsToDB(prompts: PromptItem[]): void {
-  scheduleDebouncedStoreWrite(STORES.prompts, prompts, 120);
+  scheduleDebouncedStoreWrite(STORES.prompts, prompts, 0);
 }
 
 export function saveStacksToDB(stacks: TechStackItem[]): void {
-  scheduleDebouncedStoreWrite(STORES.stacks, stacks, 120);
+  scheduleDebouncedStoreWrite(STORES.stacks, stacks, 0);
 }
 
 export function saveLessonsToDB(lessons: CodeLessonItem[]): void {
@@ -304,11 +313,11 @@ export function saveMarkdownDocsToDB(docs: MarkdownDocItem[]): void {
 }
 
 export function saveClipboardHistoryToDB(entries: ClipboardHistoryEntry[]): void {
-  scheduleDebouncedStoreWrite(STORES.clipboardHistory, entries, 120);
+  scheduleDebouncedStoreWrite(STORES.clipboardHistory, entries, 0);
 }
 
 export function saveThemePreferencesToDB(preferences: ThemePreferences): void {
-  scheduleDebouncedStoreWrite(STORES.preferences, [{ id: "theme", value: preferences }], 60);
+  scheduleDebouncedStoreWrite(STORES.preferences, [{ id: "theme", value: preferences }], 0);
 }
 
 /**

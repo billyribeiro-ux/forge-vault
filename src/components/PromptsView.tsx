@@ -1,10 +1,14 @@
+import React, { Suspense, lazy, useEffect, useId, useMemo, useRef, useState } from "react";
 import { newId } from "../services/ids";
-import React, { useMemo, useState } from "react";
+import { FolderSelection, PromptFolderRail } from "./PromptFolderRail";
+import { useDialogFocus } from "./useDialogFocus";
 import {
   ArrowCounterClockwise,
   Check,
   ClockCounterClockwise,
   Copy,
+  Eye,
+  Folder,
   GitMerge,
   MagnifyingGlass,
   PencilSimple,
@@ -19,10 +23,14 @@ import {
 import {
   CopyFormat,
   PromptCategory,
+  PromptFolder,
   PromptItem,
   PromptVersionSnapshot,
   TargetAgent,
+  ThemePreferences,
 } from "../types/vault";
+
+const PromptReader = lazy(() => import("./PromptReader"));
 import {
   estimateTokenCount,
   extractTemplateVariables,
@@ -37,6 +45,15 @@ import {
 
 interface PromptsViewProps {
   prompts: PromptItem[];
+  folders: PromptFolder[];
+  onCreateFolder: (name: string) => PromptFolder;
+  onRenameFolder: (id: string, name: string) => void;
+  onDeleteFolder: (id: string) => void;
+  onMovePrompt: (promptId: string, folderId: string | null) => void;
+  /** Prompt to open in the reader on mount (from ⌘K or a starred shortcut). */
+  promptToOpen: string | null;
+  onPromptOpened: () => void;
+  editorPreferences: ThemePreferences;
   defaultCopyFormat: CopyFormat;
   accentHex: string;
   onSavePrompt: (prompt: PromptItem) => void;
@@ -45,8 +62,6 @@ interface PromptsViewProps {
   onIncrementCopy: (id: string) => void;
   onRecordClipboard?: (label: string, payload: string, kind: "prompt") => void;
   onNotify: (message: string) => void;
-  externalCreateTrigger?: boolean;
-  onClearExternalCreate?: () => void;
 }
 
 const CATEGORIES: Array<"All" | PromptCategory> = [
@@ -78,9 +93,59 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
   onIncrementCopy,
   onRecordClipboard,
   onNotify,
-  externalCreateTrigger,
-  onClearExternalCreate,
+  folders,
+  onCreateFolder,
+  onRenameFolder,
+  onDeleteFolder,
+  onMovePrompt,
+  promptToOpen,
+  onPromptOpened,
+  editorPreferences,
 }) => {
+  const [selectedFolder, setSelectedFolder] = useState<FolderSelection>("all");
+  const [readingPromptId, setReadingPromptId] = useState<string | null>(null);
+  const readingPrompt = prompts.find((p) => p.id === readingPromptId) ?? null;
+  const editorDialogRef = useRef<HTMLDivElement | null>(null);
+  const [editingOriginal, setEditingOriginal] = useState<string | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const fieldId = useId();
+
+  useEffect(() => {
+    if (!promptToOpen) return;
+    if (prompts.some((p) => p.id === promptToOpen)) {
+      setReadingPromptId(promptToOpen);
+    }
+    onPromptOpened();
+  }, [promptToOpen, prompts, onPromptOpened]);
+
+  // A deleted folder falls back to "All prompts".
+  useEffect(() => {
+    if (
+      selectedFolder !== "all" &&
+      selectedFolder !== "unfiled" &&
+      !folders.some((f) => f.id === selectedFolder)
+    ) {
+      setSelectedFolder("all");
+    }
+  }, [folders, selectedFolder]);
+
+  const folderCounts = useMemo(() => {
+    const byFolder = new Map<string, number>();
+    let unfiled = 0;
+    for (const p of prompts) {
+      if (p.folderId) byFolder.set(p.folderId, (byFolder.get(p.folderId) ?? 0) + 1);
+      else unfiled += 1;
+    }
+    return { all: prompts.length, unfiled, byFolder };
+  }, [prompts]);
+
+  const folderNameById = useMemo(() => new Map(folders.map((f) => [f.id, f.name])), [folders]);
+  const selectedFolderName =
+    selectedFolder === "all"
+      ? null
+      : selectedFolder === "unfiled"
+        ? "Unfiled"
+        : (folderNameById.get(selectedFolder) ?? null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<"All" | PromptCategory>("All");
   const [selectedAgent, setSelectedAgent] = useState<"All" | TargetAgent>("All");
@@ -106,13 +171,6 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
   // Collection-wide duplicate scanner panel state
   const [showDuplicateScanner, setShowDuplicateScanner] = useState(false);
   const [skippedPairKeys, setSkippedPairKeys] = useState<string[]>([]);
-
-  React.useEffect(() => {
-    if (externalCreateTrigger) {
-      handleOpenNewModal();
-      onClearExternalCreate?.();
-    }
-  }, [externalCreateTrigger]);
 
   // Compute live duplicate matches for the currently edited/created prompt
   const activeDuplicateMatches = useMemo<DuplicateMatch<PromptItem>[]>(() => {
@@ -162,6 +220,14 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
   const filteredPrompts = useMemo(() => {
     return prompts
       .filter((item) => {
+        if (selectedFolder === "unfiled" && item.folderId) return false;
+        if (
+          selectedFolder !== "all" &&
+          selectedFolder !== "unfiled" &&
+          item.folderId !== selectedFolder
+        ) {
+          return false;
+        }
         if (onlyFavorites && !item.isFavorite) return false;
         if (selectedCategory !== "All" && item.category !== selectedCategory) return false;
         if (selectedAgent !== "All" && item.targetAgent !== selectedAgent) return false;
@@ -185,13 +251,21 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
         if (a.isFavorite !== b.isFavorite) return a.isFavorite ? -1 : 1;
         return b.copyCount - a.copyCount;
       });
-  }, [prompts, onlyFavorites, selectedCategory, selectedAgent, selectedTags, searchQuery]);
+  }, [
+    prompts,
+    selectedFolder,
+    onlyFavorites,
+    selectedCategory,
+    selectedAgent,
+    selectedTags,
+    searchQuery,
+  ]);
 
   const handleCopyPrompt = async (
     prompt: PromptItem,
     customVars?: Record<string, string>,
     overrideFormat?: CopyFormat,
-  ) => {
+  ): Promise<boolean> => {
     const activeFormat = overrideFormat || copyFormat;
     const payload = formatPromptPayload(prompt, activeFormat, customVars);
     try {
@@ -203,10 +277,42 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
         `Copied "${prompt.title}" (${activeFormat.toUpperCase()}) for ${prompt.targetAgent}`,
       );
       setTimeout(() => setCopiedId(null), 1800);
-    } catch {
-      onNotify("Failed to access clipboard");
+      return true;
+    } catch (err) {
+      onNotify(
+        `Could not copy to the clipboard: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return false;
     }
   };
+
+  const openEditor = (prompt: PromptItem) => {
+    setEditingOriginal(JSON.stringify(prompt));
+    setConfirmDiscard(false);
+    setEditingPrompt(prompt);
+  };
+
+  const isEditorDirty =
+    editingPrompt !== null &&
+    editingOriginal !== null &&
+    JSON.stringify(editingPrompt) !== editingOriginal;
+
+  const closeEditor = () => {
+    setEditingPrompt(null);
+    setEditingOriginal(null);
+    setConfirmDiscard(false);
+  };
+
+  /** Escape, the close button, and Cancel ask before throwing away unsaved edits. */
+  const requestCloseEditor = () => {
+    if (isEditorDirty && !confirmDiscard) {
+      setConfirmDiscard(true);
+      return;
+    }
+    closeEditor();
+  };
+
+  useDialogFocus(editorDialogRef, editingPrompt !== null, requestCloseEditor);
 
   const handleAddInlineTag = (prompt: PromptItem) => {
     const clean = normalizeTagLabel(inlineTagValue);
@@ -253,8 +359,9 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
     setVersionNote("");
     setModalTagInput("");
     setDuplicateAlertIntercepted(false);
-    setEditingPrompt({
+    openEditor({
       id: newId("prompt"),
+      folderId: selectedFolder !== "all" && selectedFolder !== "unfiled" ? selectedFolder : null,
       title: "",
       category: "Architecture",
       targetAgent: "Argon",
@@ -273,7 +380,7 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
     setVersionNote("");
     setModalTagInput("");
     setDuplicateAlertIntercepted(true);
-    setEditingPrompt({
+    openEditor({
       ...prompt,
       id: newId("prompt"),
       title: `${prompt.title} (Copy)`,
@@ -321,14 +428,13 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
     onSavePrompt({
       ...promptToSave,
       title: promptToSave.title.trim(),
-      description:
-        promptToSave.description.trim() || "Custom reusable prompt template for AI coding agents.",
+      description: promptToSave.description.trim(),
       tags: promptToSave.tags || [],
       variables: syncedVariables,
       versions: previousVersions.slice(0, 8),
       updatedAt: new Date().toISOString(),
     });
-    setEditingPrompt(null);
+    closeEditor();
     setVersionNote("");
     setDuplicateAlertIntercepted(false);
     onNotify(`Saved prompt "${promptToSave.title.trim()}"`);
@@ -360,7 +466,7 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
     if (prompts.some((p) => p.id === editingPrompt.id) && editingPrompt.id !== targetExisting.id) {
       onDeletePrompt(editingPrompt.id);
     }
-    setEditingPrompt(null);
+    closeEditor();
     setVersionNote("");
     setDuplicateAlertIntercepted(false);
     onNotify(
@@ -370,7 +476,7 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
 
   const handleSkipDuplicateModal = () => {
     const skippedTitle = editingPrompt?.title?.trim() || "duplicate prompt";
-    setEditingPrompt(null);
+    closeEditor();
     setVersionNote("");
     setDuplicateAlertIntercepted(false);
     onNotify(`Skipped creating "${skippedTitle}"`);
@@ -444,523 +550,633 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
         </div>
       </div>
 
-      {/* Collection-Wide Duplicate Scanner Drawer */}
-      {showDuplicateScanner && (
-        <div className="p-4 rounded-xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/60 space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Warning className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-              <span className="text-xs font-semibold text-slate-900 dark:text-slate-100">
-                Prompt Duplicate Detection Utility — Title & Content Overlap Analysis
+      <div className="flex flex-col lg:flex-row gap-6 items-start">
+        <PromptFolderRail
+          folders={folders}
+          counts={folderCounts}
+          selected={selectedFolder}
+          accentHex={accentHex}
+          onSelect={setSelectedFolder}
+          onCreate={onCreateFolder}
+          onRename={onRenameFolder}
+          onDelete={onDeleteFolder}
+        />
+
+        <div className="flex-1 min-w-0 space-y-5 w-full">
+          {selectedFolderName && (
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+              <Folder className="w-4 h-4" />
+              <span>{selectedFolderName}</span>
+              <span className="font-normal text-xs text-slate-500 dark:text-slate-400">
+                {filteredPrompts.length} shown
               </span>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowDuplicateScanner(false)}
-              className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
-            >
-              Close
-            </button>
-          </div>
+          )}
 
-          {collectionDuplicatePairs.length === 0 ? (
-            <p className="text-xs text-slate-600 dark:text-slate-400">
-              Zero duplicate or high-overlap prompts detected across your {prompts.length} prompt
-              templates (threshold: identical title or 55%+ content similarity).
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {collectionDuplicatePairs.map(({ key, source, match }) => (
-                <div
-                  key={key}
-                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg bg-white dark:bg-slate-900 border border-amber-200/80 dark:border-amber-800/50 text-xs"
-                >
-                  <div className="space-y-0.5">
-                    <div className="font-semibold text-slate-900 dark:text-slate-100">
-                      "{source.title}" <span className="text-slate-400 mx-1">↔</span> "
-                      {match.existingItem.title}"
-                    </div>
-                    <div className="text-slate-500 dark:text-slate-400 font-mono">
-                      Title similarity: {match.titleSimilarity}% · Content overlap:{" "}
-                      {match.contentSimilarity}% · {match.reasons.join(" · ")}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const merged = mergePromptItems(match.existingItem, source);
-                        onSavePrompt(merged);
-                        onDeletePrompt(source.id);
-                        onNotify(`Merged "${source.title}" into "${match.existingItem.title}"`);
-                      }}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg font-semibold bg-amber-600 text-white hover:bg-amber-700 cursor-pointer"
-                    >
-                      <GitMerge className="w-3.5 h-3.5" />
-                      <span>Merge</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSkippedPairKeys((prev) => [...prev, key])}
-                      className="px-3 py-1.5 rounded-lg font-medium border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                    >
-                      Skip
-                    </button>
-                  </div>
+          {/* Collection-Wide Duplicate Scanner Drawer */}
+          {showDuplicateScanner && (
+            <div className="p-4 rounded-xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/60 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Warning className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                    Prompt Duplicate Detection Utility — Title & Content Overlap Analysis
+                  </span>
                 </div>
-              ))}
+                <button
+                  type="button"
+                  onClick={() => setShowDuplicateScanner(false)}
+                  className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+
+              {collectionDuplicatePairs.length === 0 ? (
+                <p className="text-xs text-slate-600 dark:text-slate-400">
+                  Zero duplicate or high-overlap prompts detected across your {prompts.length}{" "}
+                  prompt templates (threshold: identical title or 55%+ content similarity).
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {collectionDuplicatePairs.map(({ key, source, match }) => (
+                    <div
+                      key={key}
+                      className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg bg-white dark:bg-slate-900 border border-amber-200/80 dark:border-amber-800/50 text-xs"
+                    >
+                      <div className="space-y-0.5">
+                        <div className="font-semibold text-slate-900 dark:text-slate-100">
+                          "{source.title}" <span className="text-slate-400 mx-1">↔</span> "
+                          {match.existingItem.title}"
+                        </div>
+                        <div className="text-slate-500 dark:text-slate-400 font-mono">
+                          Title similarity: {match.titleSimilarity}% · Content overlap:{" "}
+                          {match.contentSimilarity}% · {match.reasons.join(" · ")}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const merged = mergePromptItems(match.existingItem, source);
+                            onSavePrompt(merged);
+                            onDeletePrompt(source.id);
+                            onNotify(`Merged "${source.title}" into "${match.existingItem.title}"`);
+                          }}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg font-semibold bg-amber-600 text-white hover:bg-amber-700 cursor-pointer"
+                        >
+                          <GitMerge className="w-3.5 h-3.5" />
+                          <span>Merge</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSkippedPairKeys((prev) => [...prev, key])}
+                          className="px-3 py-1.5 rounded-lg font-medium border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                        >
+                          Skip
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
-        </div>
-      )}
 
-      {/* Search & Interactive Category / Agent Filter Bar */}
-      <div className="flex flex-col xl:flex-row gap-3 items-stretch xl:items-center justify-between">
-        <div className="relative flex-1 max-w-md">
-          <MagnifyingGlass className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Filter prompts by title, #tag, variable, or instruction..."
-            className="w-full pl-11 pr-9 py-2.5 text-sm rounded-full bg-(--md-sys-color-surface-container-low) border border-(--md-sys-color-outline-variant) text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
+          {/* Search & Interactive Category / Agent Filter Bar */}
+          <div className="flex flex-col 2xl:flex-row gap-3 items-stretch 2xl:items-center justify-between">
+            <div className="relative w-full 2xl:flex-1 2xl:max-w-md">
+              <MagnifyingGlass className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                aria-label="Search prompts"
+                placeholder="Search prompts by title, #tag, variable, or text…"
+                className="w-full pl-11 pr-9 py-2.5 text-sm rounded-full bg-(--md-sys-color-surface-container-low) border border-(--md-sys-color-outline-variant) text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Category Segmented Filter */}
-          <div className="flex items-center gap-1 p-1 rounded-full bg-(--md-sys-color-surface-container-low) border border-(--md-sys-color-outline-variant) overflow-x-auto">
-            {CATEGORIES.map((category) => (
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Category Segmented Filter */}
+              <div className="flex items-center gap-1 p-1 rounded-full bg-(--md-sys-color-surface-container-low) border border-(--md-sys-color-outline-variant) overflow-x-auto">
+                {CATEGORIES.map((category) => (
+                  <button
+                    key={category}
+                    type="button"
+                    onClick={() => setSelectedCategory(category)}
+                    className={`px-3 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                      selectedCategory === category
+                        ? "m3-tonal-pill font-semibold shadow-2xs"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                    }`}
+                  >
+                    {category}
+                  </button>
+                ))}
+              </div>
+
+              {/* Agent Filter */}
+              <select
+                value={selectedAgent}
+                onChange={(e) => setSelectedAgent(e.target.value as "All" | TargetAgent)}
+                aria-label="Filter by target AI agent"
+                className="px-3.5 py-2 text-xs font-medium rounded-full bg-(--md-sys-color-surface-container-low) border border-(--md-sys-color-outline-variant) text-slate-700 dark:text-slate-200 focus:outline-none"
+              >
+                {AGENTS.map((agent) => (
+                  <option key={agent} value={agent}>
+                    {agent === "All" ? "All Agents" : `Target: ${agent}`}
+                  </option>
+                ))}
+              </select>
+
+              {/* Favorites Toggle */}
               <button
-                key={category}
                 type="button"
-                onClick={() => setSelectedCategory(category)}
-                className={`px-3 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap shrink-0 cursor-pointer ${
-                  selectedCategory === category
-                    ? "m3-tonal-pill font-semibold shadow-2xs"
-                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                onClick={() => setOnlyFavorites(!onlyFavorites)}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-medium border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  onlyFavorites
+                    ? "bg-amber-500/10 border-amber-500/40 text-amber-700 dark:text-amber-300"
+                    : "bg-(--md-sys-color-surface-container-low) border-(--md-sys-color-outline-variant) text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
                 }`}
               >
-                {category}
+                <Star
+                  filled={onlyFavorites}
+                  className={`w-3.5 h-3.5 ${onlyFavorites ? "text-amber-400" : ""}`}
+                />
+                <span>Starred</span>
               </button>
-            ))}
+            </div>
           </div>
 
-          {/* Agent Filter */}
-          <select
-            value={selectedAgent}
-            onChange={(e) => setSelectedAgent(e.target.value as "All" | TargetAgent)}
-            aria-label="Filter by target AI agent"
-            className="px-3.5 py-2 text-xs font-medium rounded-full bg-(--md-sys-color-surface-container-low) border border-(--md-sys-color-outline-variant) text-slate-700 dark:text-slate-200 focus:outline-none"
-          >
-            {AGENTS.map((agent) => (
-              <option key={agent} value={agent}>
-                {agent === "All" ? "All Agents" : `Target: ${agent}`}
-              </option>
-            ))}
-          </select>
-
-          {/* Favorites Toggle */}
-          <button
-            type="button"
-            onClick={() => setOnlyFavorites(!onlyFavorites)}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-medium border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-              onlyFavorites
-                ? "bg-amber-500/10 border-amber-500/40 text-amber-700 dark:text-amber-300"
-                : "bg-(--md-sys-color-surface-container-low) border-(--md-sys-color-outline-variant) text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-            }`}
-          >
-            <Star
-              filled={onlyFavorites}
-              className={`w-3.5 h-3.5 ${onlyFavorites ? "text-amber-400" : ""}`}
-            />
-            <span>Starred</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Interactive Tag Filter Bar */}
-      {allPromptTags.length > 0 && (
-        <div className="flex items-center gap-1.5 overflow-x-auto py-1">
-          <span className="flex items-center gap-1 text-xs font-medium text-slate-500 dark:text-slate-400 mr-1 shrink-0">
-            <Tag className="w-3.5 h-3.5" />
-            <span>Filter by Tag:</span>
-          </span>
-          {allPromptTags.map(([tag, count]) => {
-            const isSelected = selectedTags.includes(tag);
-            return (
-              <button
-                key={tag}
-                type="button"
-                onClick={() => toggleTagFilter(tag)}
-                className={`px-3 py-1 rounded-full text-xs font-mono transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                  isSelected
-                    ? "m3-tonal-pill font-semibold"
-                    : "bg-(--md-sys-color-surface-container-low) text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 border border-(--md-sys-color-outline-variant)"
-                }`}
-              >
-                #{tag} <span className="opacity-60 tabular-nums">({count})</span>
-              </button>
-            );
-          })}
-          {selectedTags.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setSelectedTags([])}
-              className="px-2.5 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              Clear tags ({selectedTags.length})
-            </button>
+          {/* Interactive Tag Filter Bar */}
+          {allPromptTags.length > 0 && (
+            <div className="flex items-center gap-1.5 overflow-x-auto py-1">
+              <span className="flex items-center gap-1 text-xs font-medium text-slate-500 dark:text-slate-400 mr-1 shrink-0">
+                <Tag className="w-3.5 h-3.5" />
+                <span>Filter by Tag:</span>
+              </span>
+              {allPromptTags.map(([tag, count]) => {
+                const isSelected = selectedTags.includes(tag);
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => toggleTagFilter(tag)}
+                    className={`px-3 py-1 rounded-full text-xs font-mono transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                      isSelected
+                        ? "m3-tonal-pill font-semibold"
+                        : "bg-(--md-sys-color-surface-container-low) text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 border border-(--md-sys-color-outline-variant)"
+                    }`}
+                  >
+                    #{tag} <span className="opacity-60 tabular-nums">({count})</span>
+                  </button>
+                );
+              })}
+              {selectedTags.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedTags([])}
+                  className="px-2.5 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  Clear tags ({selectedTags.length})
+                </button>
+              )}
+            </div>
           )}
-        </div>
-      )}
 
-      {/* Empty State */}
-      {filteredPrompts.length === 0 ? (
-        <div className="p-12 text-center m3-card">
-          <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-            No matching prompts found
-          </h3>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
-            Try clearing your active category or tag filters, or create a new reusable prompt
-            template.
-          </p>
-          <div className="mt-5 flex items-center justify-center gap-3">
-            <button
-              type="button"
-              onClick={() => {
+          {/* Empty State */}
+          {filteredPrompts.length === 0 ? (
+            <PromptsEmptyState
+              kind={
+                prompts.length === 0
+                  ? "library-empty"
+                  : selectedFolderName &&
+                      (selectedFolder === "unfiled"
+                        ? folderCounts.unfiled === 0
+                        : (folderCounts.byFolder.get(selectedFolder) ?? 0) === 0)
+                    ? "folder-empty"
+                    : "no-matches"
+              }
+              folderName={selectedFolderName}
+              accentHex={accentHex}
+              onCreate={handleOpenNewModal}
+              onResetFilters={() => {
                 setSearchQuery("");
                 setSelectedCategory("All");
                 setSelectedAgent("All");
                 setSelectedTags([]);
                 setOnlyFavorites(false);
               }}
-              className="px-4 py-2 text-xs font-medium rounded-full border border-(--md-sys-color-outline-variant) text-slate-700 dark:text-slate-300 hover:bg-(--md-sys-color-surface-container-high) cursor-pointer"
-            >
-              Reset Filters
-            </button>
-            <button
-              type="button"
-              onClick={handleOpenNewModal}
-              style={{ backgroundColor: accentHex }}
-              className="px-5 py-2 text-xs font-semibold rounded-full text-white shadow-xs cursor-pointer"
-            >
-              Create First Prompt
-            </button>
-          </div>
-        </div>
-      ) : (
-        /* Prompt Cards Grid */
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-          {filteredPrompts.map((prompt) => {
-            const tokens = estimateTokenCount(prompt.content);
-            const isCustomizing = customizingPromptId === prompt.id;
-            const isCopiedMain = copiedId === `${prompt.id}-${copyFormat}`;
-            const promptTags = prompt.tags || [];
+            />
+          ) : (
+            /* Prompt Cards Grid */
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+              {filteredPrompts.map((prompt) => {
+                const tokens = estimateTokenCount(prompt.content);
+                const isCustomizing = customizingPromptId === prompt.id;
+                const isCopiedMain = copiedId === `${prompt.id}-${copyFormat}`;
+                const promptTags = prompt.tags || [];
 
-            return (
-              <article key={prompt.id} className="flex flex-col justify-between p-6 m3-card">
-                <div>
-                  {/* Card Top Metadata — Zero-Pill Inline Typography */}
-                  <div className="flex items-center justify-between gap-4 text-xs text-slate-500 dark:text-slate-400 mb-2">
-                    <div className="flex items-center gap-2 truncate">
-                      <span className="font-medium text-slate-700 dark:text-slate-300">
-                        {prompt.category}
-                      </span>
-                      <span aria-hidden="true">·</span>
-                      <span>Optimized for {prompt.targetAgent}</span>
-                      <span aria-hidden="true">·</span>
-                      <span className="font-mono tabular-nums">{tokens} tokens</span>
-                      <span aria-hidden="true">·</span>
-                      <span className="font-mono tabular-nums">{prompt.copyCount} copies</span>
-                    </div>
+                return (
+                  <article key={prompt.id} className="flex flex-col justify-between p-6 m3-card">
+                    <div>
+                      {/* Card Top Metadata — Zero-Pill Inline Typography */}
+                      <div className="flex items-center justify-between gap-4 text-xs text-slate-500 dark:text-slate-400 mb-2">
+                        <div className="flex items-center gap-2 truncate">
+                          <span className="font-medium text-slate-700 dark:text-slate-300">
+                            {prompt.category}
+                          </span>
+                          <span aria-hidden="true">·</span>
+                          <span>Optimized for {prompt.targetAgent}</span>
+                          <span aria-hidden="true">·</span>
+                          <span className="font-mono tabular-nums">{tokens} tokens</span>
+                          <span aria-hidden="true">·</span>
+                          <span className="font-mono tabular-nums">{prompt.copyCount} copies</span>
+                        </div>
 
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => onToggleFavorite(prompt.id)}
-                        title={prompt.isFavorite ? "Remove from Starred" : "Star Prompt"}
-                        className="p-1.5 rounded-md text-slate-400 hover:text-amber-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                      >
-                        <Star
-                          filled={prompt.isFavorite}
-                          className={`w-4 h-4 ${prompt.isFavorite ? "text-amber-400" : ""}`}
-                        />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setVersionNote("");
-                          setModalTagInput("");
-                          setEditingPrompt(prompt);
-                        }}
-                        title="Edit Prompt & Tags"
-                        className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                      >
-                        <PencilSimple className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDuplicatePrompt(prompt)}
-                        title="Duplicate Prompt"
-                        className="px-2 py-1 rounded-md text-[11px] font-medium text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                      >
-                        Clone
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onDeletePrompt(prompt.id);
-                        }}
-                        title="Delete Prompt"
-                        className="p-1.5 rounded-md text-slate-400 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                      >
-                        <Trash className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => onToggleFavorite(prompt.id)}
+                            title={prompt.isFavorite ? "Remove from Starred" : "Star Prompt"}
+                            className="p-1.5 rounded-md text-slate-400 hover:text-amber-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                          >
+                            <Star
+                              filled={prompt.isFavorite}
+                              className={`w-4 h-4 ${prompt.isFavorite ? "text-amber-400" : ""}`}
+                            />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setVersionNote("");
+                              setModalTagInput("");
+                              openEditor(prompt);
+                            }}
+                            title="Edit Prompt & Tags"
+                            className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                          >
+                            <PencilSimple className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDuplicatePrompt(prompt)}
+                            title="Duplicate Prompt"
+                            className="px-2 py-1 rounded-md text-[11px] font-medium text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                          >
+                            Clone
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onDeletePrompt(prompt.id);
+                            }}
+                            title="Delete Prompt"
+                            className="p-1.5 rounded-md text-slate-400 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                          >
+                            <Trash className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
 
-                  {/* Primary Title & Description */}
-                  <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 tracking-tight">
-                    {prompt.title}
-                  </h2>
-                  <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
-                    {prompt.description}
-                  </p>
-
-                  {/* Code / Prompt Template Preview */}
-                  <div className="mt-4 p-3.5 rounded-lg bg-slate-50 dark:bg-slate-950/90 border border-slate-200/80 dark:border-slate-800/90 font-mono text-xs leading-relaxed text-slate-700 dark:text-slate-300 max-h-44 overflow-y-auto whitespace-pre-wrap">
-                    {isCustomizing
-                      ? formatPromptPayload(prompt, copyFormat, variableValues)
-                      : prompt.content}
-                  </div>
-
-                  {/* Interactive Tag Row + Inline Add Tag */}
-                  <div className="mt-3 flex items-center gap-2 flex-wrap text-xs">
-                    {promptTags.map((tag) => {
-                      const isActiveFilter = selectedTags.includes(tag);
-                      return (
-                        <span
-                          key={tag}
-                          className="group inline-flex items-center gap-1 font-mono text-slate-500 dark:text-slate-400"
+                      {/* Primary Title & Description */}
+                      <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 tracking-tight">
+                        <button
+                          type="button"
+                          onClick={() => setReadingPromptId(prompt.id)}
+                          className="text-left hover:underline underline-offset-4 cursor-pointer"
                         >
-                          <button
-                            type="button"
-                            onClick={() => toggleTagFilter(tag)}
-                            className={`hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer ${
-                              isActiveFilter
-                                ? "text-indigo-600 dark:text-indigo-400 font-semibold underline underline-offset-4"
-                                : ""
-                            }`}
-                          >
-                            #{tag}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveTagFromCard(prompt, tag)}
-                            title={`Remove #${tag}`}
-                            className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-500 transition-opacity cursor-pointer"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </span>
-                      );
-                    })}
+                          {prompt.title}
+                        </button>
+                      </h2>
+                      <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
+                        {prompt.description}
+                      </p>
 
-                    {inlineTagPromptId === prompt.id ? (
-                      <form
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          handleAddInlineTag(prompt);
-                        }}
-                        className="inline-flex items-center gap-1"
-                      >
-                        <input
-                          type="text"
-                          autoFocus
-                          value={inlineTagValue}
-                          onChange={(e) => setInlineTagValue(e.target.value)}
-                          onBlur={() => handleAddInlineTag(prompt)}
-                          placeholder="new-tag"
-                          className="w-24 px-2 py-0.5 text-xs font-mono rounded bg-slate-100 dark:bg-slate-800 border border-indigo-500 text-slate-900 dark:text-slate-100 focus:outline-none"
-                        />
-                      </form>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setInlineTagPromptId(prompt.id);
-                          setInlineTagValue("");
-                        }}
-                        className="text-[11px] font-mono text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors cursor-pointer"
-                      >
-                        + tag
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Template Variable Summary */}
-                  {prompt.variables.length > 0 && !isCustomizing && (
-                    <div className="mt-2.5 text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5 flex-wrap">
-                      <span className="font-medium text-slate-700 dark:text-slate-300">
-                        Variables ({prompt.variables.length}):
-                      </span>
-                      {prompt.variables.map((v, idx) => (
-                        <React.Fragment key={v.name}>
-                          <code className="font-mono text-indigo-600 dark:text-indigo-400">
-                            {`{{${v.name}}}`}
-                          </code>
-                          {idx < prompt.variables.length - 1 && <span aria-hidden="true">·</span>}
-                        </React.Fragment>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Interactive Variable Fill-In Drawer */}
-                  {isCustomizing && prompt.variables.length > 0 && (
-                    <div className="mt-4 p-4 rounded-lg bg-slate-100/70 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-slate-900 dark:text-slate-100">
-                          Customize Template Variables Before Copying
+                      {/* Code / Prompt Template Preview. The full text opens in the reader. */}
+                      <div className="mt-4 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                        <span className="flex items-center gap-1.5">
+                          <Folder className="w-3.5 h-3.5" />
+                          {prompt.folderId
+                            ? (folderNameById.get(prompt.folderId) ?? "Unfiled")
+                            : "Unfiled"}
                         </span>
                         <button
                           type="button"
-                          onClick={() => setCustomizingPromptId(null)}
-                          className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                          onClick={() => setReadingPromptId(prompt.id)}
+                          aria-label={`Read full prompt: ${prompt.title}`}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-full font-medium text-slate-700 dark:text-slate-200 hover:bg-(--md-sys-color-surface-container-high) cursor-pointer"
                         >
-                          Close
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Read full prompt</span>
                         </button>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {prompt.variables.map((variable) => (
-                          <div key={variable.name}>
-                            <label className="block text-[11px] font-mono text-slate-600 dark:text-slate-300 mb-1">
-                              {`{{${variable.name}}}`}
-                            </label>
+                      <div className="mt-2 p-3.5 rounded-lg bg-slate-50 dark:bg-slate-950/90 border border-slate-200/80 dark:border-slate-800/90 font-mono text-xs leading-relaxed text-slate-700 dark:text-slate-300 max-h-44 overflow-y-auto whitespace-pre-wrap">
+                        {isCustomizing
+                          ? formatPromptPayload(prompt, copyFormat, variableValues)
+                          : prompt.content}
+                      </div>
+
+                      {/* Interactive Tag Row + Inline Add Tag */}
+                      <div className="mt-3 flex items-center gap-2 flex-wrap text-xs">
+                        {promptTags.map((tag) => {
+                          const isActiveFilter = selectedTags.includes(tag);
+                          return (
+                            <span
+                              key={tag}
+                              className="group inline-flex items-center gap-1 font-mono text-slate-500 dark:text-slate-400"
+                            >
+                              <button
+                                type="button"
+                                onClick={() => toggleTagFilter(tag)}
+                                className={`hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer ${
+                                  isActiveFilter
+                                    ? "text-indigo-600 dark:text-indigo-400 font-semibold underline underline-offset-4"
+                                    : ""
+                                }`}
+                              >
+                                #{tag}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveTagFromCard(prompt, tag)}
+                                title={`Remove #${tag}`}
+                                className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-500 transition-opacity cursor-pointer"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </span>
+                          );
+                        })}
+
+                        {inlineTagPromptId === prompt.id ? (
+                          <form
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              handleAddInlineTag(prompt);
+                            }}
+                            className="inline-flex items-center gap-1"
+                          >
                             <input
                               type="text"
-                              value={variableValues[variable.name] ?? variable.defaultValue}
-                              onChange={(e) =>
-                                setVariableValues((prev) => ({
-                                  ...prev,
-                                  [variable.name]: e.target.value,
-                                }))
-                              }
-                              className="w-full px-2.5 py-1.5 text-xs rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
+                              autoFocus
+                              value={inlineTagValue}
+                              onChange={(e) => setInlineTagValue(e.target.value)}
+                              onBlur={() => handleAddInlineTag(prompt)}
+                              placeholder="new-tag"
+                              className="w-24 px-2 py-0.5 text-xs font-mono rounded bg-slate-100 dark:bg-slate-800 border border-indigo-500 text-slate-900 dark:text-slate-100 focus:outline-none"
                             />
-                          </div>
-                        ))}
+                          </form>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setInlineTagPromptId(prompt.id);
+                              setInlineTagValue("");
+                            }}
+                            className="text-[11px] font-mono text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors cursor-pointer"
+                          >
+                            + tag
+                          </button>
+                        )}
                       </div>
-                    </div>
-                  )}
-                </div>
 
-                {/* Action Bar: One-Click Copy & Variable Fill Trigger */}
-                <div className="mt-5 pt-3.5 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-1.5">
-                    {prompt.variables.length > 0 && (
+                      {/* Template Variable Summary */}
+                      {prompt.variables.length > 0 && !isCustomizing && (
+                        <div className="mt-2.5 text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5 flex-wrap">
+                          <span className="font-medium text-slate-700 dark:text-slate-300">
+                            Variables ({prompt.variables.length}):
+                          </span>
+                          {prompt.variables.map((v, idx) => (
+                            <React.Fragment key={v.name}>
+                              <code className="font-mono text-indigo-600 dark:text-indigo-400">
+                                {`{{${v.name}}}`}
+                              </code>
+                              {idx < prompt.variables.length - 1 && (
+                                <span aria-hidden="true">·</span>
+                              )}
+                            </React.Fragment>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Interactive Variable Fill-In Drawer */}
+                      {isCustomizing && prompt.variables.length > 0 && (
+                        <div className="mt-4 p-4 rounded-lg bg-slate-100/70 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                              Customize Template Variables Before Copying
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setCustomizingPromptId(null)}
+                              className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                            >
+                              Close
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {prompt.variables.map((variable) => (
+                              <div key={variable.name}>
+                                <label className="block text-[11px] font-mono text-slate-600 dark:text-slate-300 mb-1">
+                                  {`{{${variable.name}}}`}
+                                </label>
+                                <input
+                                  type="text"
+                                  value={variableValues[variable.name] ?? variable.defaultValue}
+                                  onChange={(e) =>
+                                    setVariableValues((prev) => ({
+                                      ...prev,
+                                      [variable.name]: e.target.value,
+                                    }))
+                                  }
+                                  className="w-full px-2.5 py-1.5 text-xs rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Action Bar: One-Click Copy & Variable Fill Trigger */}
+                    <div className="mt-5 pt-3.5 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-1.5">
+                        {prompt.variables.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleCustomizeDrawer(prompt)}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                              isCustomizing
+                                ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 border-transparent"
+                                : "bg-slate-50 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                            }`}
+                          >
+                            <SlidersHorizontal className="w-3.5 h-3.5" />
+                            <span>
+                              {isCustomizing ? "Hide Vars" : `Fill ${prompt.variables.length} Vars`}
+                            </span>
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleCopyPrompt(
+                              prompt,
+                              isCustomizing ? variableValues : undefined,
+                              "xml",
+                            )
+                          }
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                        >
+                          {copiedId === `${prompt.id}-xml` ? "Copied XML!" : "Copy XML"}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleCopyPrompt(
+                              prompt,
+                              isCustomizing ? variableValues : undefined,
+                              "json",
+                            )
+                          }
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                        >
+                          {copiedId === `${prompt.id}-json` ? "Copied JSON!" : "JSON"}
+                        </button>
+                      </div>
+
                       <button
                         type="button"
-                        onClick={() => handleToggleCustomizeDrawer(prompt)}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                          isCustomizing
-                            ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 border-transparent"
-                            : "bg-slate-50 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                        onClick={() =>
+                          handleCopyPrompt(prompt, isCustomizing ? variableValues : undefined)
+                        }
+                        style={isCopiedMain ? undefined : { backgroundColor: accentHex }}
+                        className={`flex items-center gap-2 px-5 py-2 rounded-full text-xs font-semibold shadow-xs transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                          isCopiedMain ? "bg-emerald-600 text-white" : "text-white hover:opacity-95"
                         }`}
                       >
-                        <SlidersHorizontal className="w-3.5 h-3.5" />
-                        <span>
-                          {isCustomizing ? "Hide Vars" : `Fill ${prompt.variables.length} Vars`}
-                        </span>
+                        {isCopiedMain ? (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Copied for {prompt.targetAgent}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>Copy Prompt</span>
+                          </>
+                        )}
                       </button>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleCopyPrompt(prompt, isCustomizing ? variableValues : undefined, "xml")
-                      }
-                      className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                    >
-                      {copiedId === `${prompt.id}-xml` ? "Copied XML!" : "Copy XML"}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleCopyPrompt(prompt, isCustomizing ? variableValues : undefined, "json")
-                      }
-                      className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                    >
-                      {copiedId === `${prompt.id}-json` ? "Copied JSON!" : "JSON"}
-                    </button>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleCopyPrompt(prompt, isCustomizing ? variableValues : undefined)
-                    }
-                    style={isCopiedMain ? undefined : { backgroundColor: accentHex }}
-                    className={`flex items-center gap-2 px-5 py-2 rounded-full text-xs font-semibold shadow-xs transition-all whitespace-nowrap shrink-0 cursor-pointer ${
-                      isCopiedMain ? "bg-emerald-600 text-white" : "text-white hover:opacity-95"
-                    }`}
-                  >
-                    {isCopiedMain ? (
-                      <>
-                        <Check className="w-3.5 h-3.5" />
-                        <span>Copied for {prompt.targetAgent}</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3.5 h-3.5" />
-                        <span>Copy Prompt</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </article>
-            );
-          })}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
         </div>
+      </div>
+
+      {/* Full prompt reader */}
+      {readingPrompt && (
+        <Suspense
+          fallback={
+            <div
+              role="status"
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 text-xs text-white"
+            >
+              Opening prompt…
+            </div>
+          }
+        >
+          <PromptReader
+            prompt={readingPrompt}
+            folders={folders}
+            initialFormat={copyFormat}
+            preferences={editorPreferences}
+            accentHex={accentHex}
+            onClose={() => setReadingPromptId(null)}
+            onCopy={(p, values, format) => handleCopyPrompt(p, values, format)}
+            onEdit={(p) => {
+              setReadingPromptId(null);
+              setVersionNote("");
+              setModalTagInput("");
+              openEditor(p);
+            }}
+            onMove={onMovePrompt}
+            onToggleFavorite={onToggleFavorite}
+          />
+        </Suspense>
       )}
 
       {/* Create / Edit Prompt Modal */}
       {editingPrompt && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-xs"
-          onClick={() => setEditingPrompt(null)}
-        >
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-xs">
           <div
+            ref={editorDialogRef}
             role="dialog"
             aria-modal="true"
-            aria-label="Edit Prompt Template"
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-3xl m3-dialog overflow-hidden"
+            aria-labelledby={`${fieldId}-editor-title`}
+            className="w-full max-w-5xl m3-dialog overflow-hidden"
           >
             <div className="flex items-center justify-between px-6 py-4 border-b border-(--md-sys-color-outline-variant)">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+              <h2
+                id={`${fieldId}-editor-title`}
+                className="text-lg font-bold text-slate-900 dark:text-slate-100"
+              >
                 {prompts.some((p) => p.id === editingPrompt.id)
                   ? "Edit Prompt Template, Tags & Snapshots"
                   : "Create New Prompt Template"}
               </h2>
               <button
                 type="button"
-                onClick={() => setEditingPrompt(null)}
+                onClick={requestCloseEditor}
+                aria-label="Close editor"
                 className="p-1.5 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {confirmDiscard && (
+              <div
+                role="alert"
+                className="flex flex-wrap items-center justify-between gap-3 px-6 py-3 bg-amber-500/10 border-b border-amber-500/40"
+              >
+                <span className="text-xs font-medium text-slate-800 dark:text-slate-100">
+                  You have unsaved changes. Discard them?
+                </span>
+                <span className="flex gap-2">
+                  <button
+                    type="button"
+                    autoFocus
+                    onClick={() => setConfirmDiscard(false)}
+                    className="px-3 py-1 text-xs rounded-full border border-(--md-sys-color-outline-variant) text-slate-700 dark:text-slate-200 cursor-pointer"
+                  >
+                    Keep editing
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closeEditor}
+                    className="px-3 py-1 text-xs font-semibold rounded-full bg-rose-600 text-white cursor-pointer"
+                  >
+                    Discard changes
+                  </button>
+                </span>
+              </div>
+            )}
 
             <form onSubmit={handleSaveModal} className="p-6 space-y-4 max-h-[84vh] overflow-y-auto">
               {/* Live Duplicate Detection Alert Banner */}
@@ -1024,12 +1240,17 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
                 </div>
               )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                 <div className="sm:col-span-1">
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  <label
+                    htmlFor={`${fieldId}-title`}
+                    className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1"
+                  >
                     Title
                   </label>
                   <input
+                    id={`${fieldId}-title`}
+                    autoFocus
                     type="text"
                     required
                     value={editingPrompt.title}
@@ -1040,10 +1261,38 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  <label
+                    htmlFor={`${fieldId}-folder`}
+                    className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1"
+                  >
+                    Folder
+                  </label>
+                  <select
+                    id={`${fieldId}-folder`}
+                    value={editingPrompt.folderId ?? ""}
+                    onChange={(e) =>
+                      setEditingPrompt({ ...editingPrompt, folderId: e.target.value || null })
+                    }
+                    className="w-full px-3 py-2 text-sm rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100"
+                  >
+                    <option value="">Unfiled</option>
+                    {folders.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor={`${fieldId}-category`}
+                    className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1"
+                  >
                     Category
                   </label>
                   <select
+                    id={`${fieldId}-category`}
                     value={editingPrompt.category}
                     onChange={(e) =>
                       setEditingPrompt({
@@ -1062,10 +1311,14 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  <label
+                    htmlFor={`${fieldId}-agent`}
+                    className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1"
+                  >
                     Target Agent
                   </label>
                   <select
+                    id={`${fieldId}-agent`}
                     value={editingPrompt.targetAgent}
                     onChange={(e) =>
                       setEditingPrompt({
@@ -1086,7 +1339,10 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
 
               {/* Custom Tags Editor in Modal */}
               <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                <label
+                  htmlFor={`${fieldId}-tag`}
+                  className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1"
+                >
                   Custom Tags
                 </label>
                 <div className="flex flex-wrap items-center gap-2 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
@@ -1104,6 +1360,7 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
                             tags: editingPrompt.tags.filter((item) => item !== t),
                           })
                         }
+                        aria-label={`Remove tag ${t}`}
                         className="text-slate-400 hover:text-rose-500 cursor-pointer"
                       >
                         <X className="w-3 h-3" />
@@ -1111,6 +1368,7 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
                     </span>
                   ))}
                   <input
+                    id={`${fieldId}-tag`}
                     type="text"
                     value={modalTagInput}
                     onChange={(e) => setModalTagInput(e.target.value)}
@@ -1134,10 +1392,14 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                <label
+                  htmlFor={`${fieldId}-summary`}
+                  className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1"
+                >
                   Summary / When to Use
                 </label>
                 <input
+                  id={`${fieldId}-summary`}
                   type="text"
                   value={editingPrompt.description}
                   onChange={(e) =>
@@ -1150,7 +1412,10 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
 
               <div>
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
-                  <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                  <label
+                    htmlFor={`${fieldId}-body`}
+                    className="text-xs font-medium text-slate-700 dark:text-slate-300"
+                  >
                     Prompt Template Body (Use{" "}
                     <code className="font-mono">{`{{variable_name}}`}</code> for dynamic fields)
                   </label>
@@ -1192,7 +1457,9 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
                   </div>
                 </div>
                 <textarea
-                  rows={8}
+                  id={`${fieldId}-body`}
+                  rows={18}
+                  spellCheck={false}
                   required
                   value={editingPrompt.content}
                   onChange={(e) => {
@@ -1207,7 +1474,7 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
                       variables: syncedVars,
                     });
                   }}
-                  className="w-full p-3.5 text-xs font-mono leading-relaxed rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100"
+                  className="w-full min-h-[320px] max-h-[60vh] resize-y p-3.5 text-[13px] font-mono leading-relaxed rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100"
                 />
               </div>
 
@@ -1221,10 +1488,14 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {editingPrompt.variables.map((v, idx) => (
                       <div key={v.name} className="flex items-center gap-2">
-                        <span className="text-xs font-mono text-indigo-600 dark:text-indigo-400 shrink-0">
+                        <label
+                          htmlFor={`${fieldId}-default-${v.name}`}
+                          className="text-xs font-mono text-indigo-600 dark:text-indigo-400 shrink-0"
+                        >
                           {`{{${v.name}}}`}:
-                        </span>
+                        </label>
                         <input
+                          id={`${fieldId}-default-${v.name}`}
                           type="text"
                           value={v.defaultValue}
                           onChange={(e) => {
@@ -1290,6 +1561,7 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
               <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
                 <input
                   type="text"
+                  aria-label="Version note"
                   value={versionNote}
                   onChange={(e) => setVersionNote(e.target.value)}
                   placeholder="Optional version snapshot note (e.g. Added strict XML tags)..."
@@ -1298,7 +1570,7 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setEditingPrompt(null)}
+                    onClick={requestCloseEditor}
                     className="px-4 py-2 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                   >
                     Cancel
@@ -1321,3 +1593,63 @@ export const PromptsView: React.FC<PromptsViewProps> = ({
     </div>
   );
 };
+
+function PromptsEmptyState({
+  kind,
+  folderName,
+  accentHex,
+  onCreate,
+  onResetFilters,
+}: {
+  kind: "library-empty" | "folder-empty" | "no-matches";
+  folderName: string | null;
+  accentHex: string;
+  onCreate: () => void;
+  onResetFilters: () => void;
+}) {
+  const copy = {
+    "library-empty": {
+      title: "Your prompt library is empty",
+      body: "Create a prompt to reuse it with any AI agent. Use {{variables}} for the parts that change each time, and folders to keep related prompts together.",
+      cta: "Create your first prompt",
+    },
+    "folder-empty": {
+      title: `No prompts in ${folderName ?? "this folder"} yet`,
+      body: "New prompts created while this folder is open are filed here. You can also move a prompt here from its editor or reader.",
+      cta: `New prompt in ${folderName ?? "this folder"}`,
+    },
+    "no-matches": {
+      title: "No prompts match these filters",
+      body: "Clear the search, category, agent, tag, or starred filters to see more prompts.",
+      cta: "New prompt",
+    },
+  }[kind];
+
+  return (
+    <div className="p-12 text-center m3-card">
+      <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">{copy.title}</h3>
+      <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
+        {copy.body}
+      </p>
+      <div className="mt-5 flex items-center justify-center gap-3">
+        {kind === "no-matches" && (
+          <button
+            type="button"
+            onClick={onResetFilters}
+            className="px-4 py-2 text-xs font-medium rounded-full border border-(--md-sys-color-outline-variant) text-slate-700 dark:text-slate-300 hover:bg-(--md-sys-color-surface-container-high) cursor-pointer"
+          >
+            Clear filters
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onCreate}
+          style={{ backgroundColor: accentHex }}
+          className="px-5 py-2 text-xs font-semibold rounded-full text-white shadow-xs cursor-pointer"
+        >
+          {copy.cta}
+        </button>
+      </div>
+    </div>
+  );
+}

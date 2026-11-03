@@ -27,6 +27,9 @@ export default defineConfig(() => {
             if (id.includes("node_modules/@monaco-editor")) {
               return "monaco-vendor";
             }
+            if (id.includes("node_modules/monaco-editor")) {
+              return "monaco-editor";
+            }
           },
         },
       },

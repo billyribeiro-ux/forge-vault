@@ -499,7 +499,7 @@ export default function App() {
         <SaveStatusIndicator status={saveStatus} />
 
         {/* Zone 2: Material 3 Pill Navigation Destinations */}
-        <nav className="hidden xl:flex items-center gap-1.5 p-1 rounded-full bg-(--md-sys-color-surface-container-low) border border-(--md-sys-color-outline-variant)">
+        <nav className="hidden 2xl:flex items-center gap-1.5 p-1 rounded-full bg-(--md-sys-color-surface-container-low) border border-(--md-sys-color-outline-variant)">
           {navDestinations.map((dest) => {
             const IconComponent = dest.icon;
             const isActive = activeView === dest.id;

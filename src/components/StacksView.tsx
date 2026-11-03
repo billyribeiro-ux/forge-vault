@@ -477,8 +477,7 @@ export const StacksView: React.FC<StacksViewProps> = ({
     return {
       ...editingStack,
       name: editingStack.name.trim(),
-      tagline:
-        editingStack.tagline.trim() || "Reusable stack blueprint for AI agent context injection.",
+      tagline: editingStack.tagline.trim(),
       tags: editingStack.tags || [],
       dependencies: parsedDeps,
       architectureRules: parsedRules,

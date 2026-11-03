@@ -93,7 +93,14 @@ export const DataBackupView: React.FC<DataBackupViewProps> = ({
   const bundleJsonString = useMemo(
     () =>
       JSON.stringify(
-        createVaultBackupBundle({ promptFolders, prompts, stacks, lessons, markdownDocs, preferences }),
+        createVaultBackupBundle({
+          promptFolders,
+          prompts,
+          stacks,
+          lessons,
+          markdownDocs,
+          preferences,
+        }),
         null,
         2,
       ),
