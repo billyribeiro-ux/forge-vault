@@ -1,0 +1,246 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /*
+   * Google Material Design 3 (M3 Expressive) HCT Tonal Surface & Neutral-Variant Scale
+   * Evidence-calibrated for CIE L* perceptual lightness, zero OLED halation, and APCA Lc compliance:
+   * - Light Mode surfaces: Tone 100 (#FFFFFF), Tone 98 (#F8F9FC), Tone 95 (#F1F3F9), Tone 90 (#E2E6F0)
+   * - Dark Mode surfaces: Tone 4 (#0C0E13), Tone 6 (#111318), Tone 11 (#191C22), Tone 15 (#22252D), Tone 22 (#2E323C)
+   * - Text hierarchy: On-Surface Tone 10 (#191C20) in Light / Tone 90 (#E2E2E9) in Dark
+   */
+  --color-slate-50: #f8f9fc;
+  --color-slate-100: #f1f3f9;
+  --color-slate-200: #e1e5ef;
+  --color-slate-300: #c4c7d0;
+  --color-slate-400: #8e9199;
+  --color-slate-500: #5e6168;
+  --color-slate-600: #44474e;
+  --color-slate-700: #2e323c;
+  --color-slate-800: #22252d;
+  --color-slate-900: #181b21;
+  --color-slate-950: #0c0e13;
+}
+
+@layer base {
+  :root {
+    --font-display:
+      "Plus Jakarta Sans", "Roboto Flex", -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-sans: "Roboto Flex", "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+    /* Dynamic Seed Accent */
+    --accent-color: #4285f4;
+    --accent-hover: color-mix(in oklch, var(--accent-color) 88%, black);
+    --accent-soft: color-mix(in oklch, var(--accent-color) 14%, transparent);
+    --editor-font-size: 13px;
+
+    /* Material Design 3 (M3) Light Scheme Tokens (HCT Tone System) */
+    --md-sys-color-primary: color-mix(in oklch, var(--accent-color) 90%, #062e6f);
+    --md-sys-color-on-primary: #ffffff;
+    --md-sys-color-primary-container: color-mix(in oklch, var(--accent-color) 18%, #f8f9fc);
+    --md-sys-color-on-primary-container: color-mix(in oklch, var(--accent-color) 65%, #041e49);
+    --md-sys-color-secondary-container: color-mix(in oklch, var(--accent-color) 14%, #eef1f8);
+    --md-sys-color-on-secondary-container: color-mix(in oklch, var(--accent-color) 55%, #111318);
+
+    --md-sys-color-surface-dim: #d9dbe0;
+    --md-sys-color-surface: #f8f9fc;
+    --md-sys-color-surface-bright: #ffffff;
+    --md-sys-color-surface-container-lowest: #ffffff;
+    --md-sys-color-surface-container-low: #f2f4f9;
+    --md-sys-color-surface-container: #eceef4;
+    --md-sys-color-surface-container-high: #e6e8ee;
+    --md-sys-color-surface-container-highest: #e1e3e9;
+
+    --md-sys-color-on-surface: #191c20;
+    --md-sys-color-on-surface-variant: #44474e;
+    --md-sys-color-outline: #74777f;
+    --md-sys-color-outline-variant: #dde1eb;
+
+    /* M3 Elevation & Motion Tokens */
+    --md-sys-elevation-1: 0 1px 2px 0 rgba(15, 23, 42, 0.06), 0 1px 3px 1px rgba(15, 23, 42, 0.04);
+    --md-sys-elevation-2: 0 2px 6px 2px rgba(15, 23, 42, 0.07), 0 1px 2px 0 rgba(15, 23, 42, 0.05);
+    --md-sys-elevation-3:
+      0 8px 24px -4px rgba(15, 23, 42, 0.12), 0 2px 6px -1px rgba(15, 23, 42, 0.06);
+    --md-sys-motion-easing-emphasized: cubic-bezier(0.2, 0, 0, 1);
+
+    color-scheme: light;
+  }
+
+  /* Light Mode — Material You Dynamic Seed Tinted Surfaces */
+  :root[data-contrast="tinted"]:not(.dark) {
+    --color-slate-50: color-mix(in oklch, var(--accent-color) 4%, #f8f9fc);
+    --color-slate-100: color-mix(in oklch, var(--accent-color) 7%, #f1f3f9);
+    --color-slate-200: color-mix(in oklch, var(--accent-color) 10%, #e1e5ef);
+    --md-sys-color-surface: color-mix(in oklch, var(--accent-color) 4%, #f8f9fc);
+    --md-sys-color-surface-container-low: color-mix(in oklch, var(--accent-color) 6%, #f2f4f9);
+    --md-sys-color-surface-container: color-mix(in oklch, var(--accent-color) 8%, #eceef4);
+    --md-sys-color-surface-container-high: color-mix(in oklch, var(--accent-color) 11%, #e6e8ee);
+  }
+
+  /* Light Mode — High Contrast Accessibility (M3 High Contrast Spec) */
+  :root[data-contrast="high-contrast"]:not(.dark) {
+    --color-slate-50: #ffffff;
+    --color-slate-100: #f0f2f7;
+    --color-slate-200: #c6cad4;
+    --color-slate-600: #1f2228;
+    --md-sys-color-surface: #ffffff;
+    --md-sys-color-surface-container-low: #f4f5f8;
+    --md-sys-color-outline-variant: #9da2b0;
+  }
+
+  /* Material Design 3 (M3) Dark Scheme Tokens (HCT Tone System) */
+  .dark {
+    --accent-soft: color-mix(in oklch, var(--accent-color) 22%, transparent);
+
+    --md-sys-color-primary: color-mix(in oklch, var(--accent-color) 78%, white);
+    --md-sys-color-on-primary: #062e6f;
+    --md-sys-color-primary-container: color-mix(in oklch, var(--accent-color) 32%, #111318);
+    --md-sys-color-on-primary-container: color-mix(in oklch, var(--accent-color) 85%, white);
+    --md-sys-color-secondary-container: color-mix(in oklch, var(--accent-color) 24%, #1d2026);
+    --md-sys-color-on-secondary-container: color-mix(in oklch, var(--accent-color) 86%, white);
+
+    --md-sys-color-surface-dim: #111318;
+    --md-sys-color-surface: #111318;
+    --md-sys-color-surface-bright: #37393f;
+    --md-sys-color-surface-container-lowest: #0c0e13;
+    --md-sys-color-surface-container-low: #181b21;
+    --md-sys-color-surface-container: #1d2027;
+    --md-sys-color-surface-container-high: #262a33;
+    --md-sys-color-surface-container-highest: #313540;
+
+    --md-sys-color-on-surface: #e2e2e9;
+    --md-sys-color-on-surface-variant: #c4c6d0;
+    --md-sys-color-outline: #8e9099;
+    --md-sys-color-outline-variant: #282c37;
+
+    --md-sys-elevation-1: 0 1px 3px 0 rgba(0, 0, 0, 0.38), 0 1px 2px -1px rgba(0, 0, 0, 0.32);
+    --md-sys-elevation-2: 0 4px 12px -2px rgba(0, 0, 0, 0.45), 0 2px 4px -2px rgba(0, 0, 0, 0.35);
+    --md-sys-elevation-3: 0 12px 32px -4px rgba(0, 0, 0, 0.6), 0 4px 12px -2px rgba(0, 0, 0, 0.45);
+
+    color-scheme: dark;
+  }
+
+  /* Dark Mode — Material You Dynamic Seed Tinted Surfaces */
+  .dark[data-contrast="tinted"] {
+    --color-slate-950: color-mix(in oklch, var(--accent-color) 5%, #0b0d13);
+    --color-slate-900: color-mix(in oklch, var(--accent-color) 7%, #161921);
+    --color-slate-800: color-mix(in oklch, var(--accent-color) 10%, #222631);
+    --color-slate-700: color-mix(in oklch, var(--accent-color) 12%, #2f3442);
+    --md-sys-color-surface-container-lowest: color-mix(in oklch, var(--accent-color) 4%, #0b0d13);
+    --md-sys-color-surface: color-mix(in oklch, var(--accent-color) 6%, #111318);
+    --md-sys-color-surface-container-low: color-mix(in oklch, var(--accent-color) 8%, #181b21);
+    --md-sys-color-surface-container: color-mix(in oklch, var(--accent-color) 10%, #1d2027);
+    --md-sys-color-surface-container-high: color-mix(in oklch, var(--accent-color) 13%, #262a33);
+  }
+
+  /* Dark Mode — High-Contrast Accessibility Surface Overrides (M3 High Contrast Spec) */
+  .dark[data-contrast="high-contrast"] {
+    --color-slate-950: #000000;
+    --color-slate-900: #0c0e12;
+    --color-slate-800: #2b2f3a;
+    --color-slate-700: #414756;
+    --color-slate-100: #ffffff;
+    --color-slate-300: #e2e5ef;
+    --md-sys-color-surface-container-lowest: #000000;
+    --md-sys-color-surface: #050608;
+    --md-sys-color-surface-container-low: #0c0e12;
+    --md-sys-color-surface-container: #14171e;
+    --md-sys-color-outline-variant: #3c4150;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--md-sys-color-surface);
+    color: var(--md-sys-color-on-surface);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    letter-spacing: 0.005em;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.015em;
+  }
+
+  code,
+  pre,
+  .font-mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Google Material Design 3 Reusable Component Classes */
+.m3-surface {
+  background-color: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+}
+
+.m3-card {
+  background-color: var(--md-sys-color-surface-container-lowest);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 20px;
+  box-shadow: var(--md-sys-elevation-1);
+  transition:
+    background-color 180ms var(--md-sys-motion-easing-emphasized),
+    border-color 180ms var(--md-sys-motion-easing-emphasized),
+    box-shadow 180ms var(--md-sys-motion-easing-emphasized),
+    transform 180ms var(--md-sys-motion-easing-emphasized);
+}
+
+.dark .m3-card {
+  background-color: var(--md-sys-color-surface-container-low);
+}
+
+.m3-card:hover {
+  border-color: color-mix(in oklch, var(--accent-color) 38%, var(--md-sys-color-outline-variant));
+  box-shadow: var(--md-sys-elevation-2);
+}
+
+.m3-tonal-pill {
+  background-color: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.m3-primary-container {
+  background-color: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+
+.m3-dialog {
+  background-color: var(--md-sys-color-surface-container-lowest);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 28px;
+  box-shadow: var(--md-sys-elevation-3);
+}
+
+.dark .m3-dialog {
+  background-color: var(--md-sys-color-surface-container);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Material 3 Subtle Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(142, 145, 153, 0.26);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(142, 145, 153, 0.48);
+}

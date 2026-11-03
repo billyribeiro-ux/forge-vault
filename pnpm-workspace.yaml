@@ -1,0 +1,16 @@
+allowBuilds:
+  "@carbon/icon-helpers": false
+  "@carbon/icons-react": false
+  "@google/genai": false
+  esbuild: false
+  protobufjs: false
+catalog:
+  vite: npm:@voidzero-dev/vite-plus-core@1.4.0
+  vite-plus: 1.4.0
+overrides:
+  vite@*: "catalog:"
+peerDependencyRules:
+  allowAny:
+    - vite
+  allowedVersions:
+    vite: "*"

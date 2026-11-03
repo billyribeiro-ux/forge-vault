@@ -1,0 +1,6 @@
+{
+  "name": "ForgeVault — AI Prompt, Stack & Monaco Lesson Studio",
+  "description": "Local-first developer workbench for curating AI agent prompts, reusable tech stacks, and split-pane Markdown + multi-file Monaco Editor code lessons for Web and macOS Tauri.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
