@@ -22,6 +22,7 @@ import {
   ClipboardHistoryEntry,
   CodeLessonItem,
   MarkdownDocItem,
+  PromptFolder,
   PromptItem,
   TechStackItem,
   ThemePreferences,
@@ -35,6 +36,7 @@ import {
   saveClipboardHistoryToDB,
   saveLessonsToDB,
   saveMarkdownDocsToDB,
+  savePromptFoldersToDB,
   savePromptsToDB,
   saveStacksToDB,
   saveThemePreferencesToDB,
@@ -69,7 +71,10 @@ const DataBackupView = lazy(() =>
 
 export default function App() {
   const [activeView, setActiveView] = useState<WorkspaceView>("prompts");
+  const [promptFolders, setPromptFolders] = useState<PromptFolder[]>([]);
   const [prompts, setPrompts] = useState<PromptItem[]>([]);
+  // Prompt to open in the reader when the Prompts view mounts (e.g. chosen in the ⌘K palette).
+  const [promptToOpen, setPromptToOpen] = useState<string | null>(null);
   const [stacks, setStacks] = useState<TechStackItem[]>([]);
   const [lessons, setLessons] = useState<CodeLessonItem[]>([]);
   const [activeLessonId, setActiveLessonId] = useState<string>("");
@@ -83,7 +88,6 @@ export default function App() {
   const [toast, setToast] = useState<{ id: number; message: string; undo?: () => void } | null>(
     null,
   );
-  const [triggerNewPrompt, setTriggerNewPrompt] = useState(false);
 
   const [hydration, setHydration] = useState<
     { state: "loading" } | { state: "ready" } | { state: "error"; message: string }
@@ -103,6 +107,7 @@ export default function App() {
       .then((initial) => {
         if (!mounted) return;
         loadedRef.current = initial;
+        setPromptFolders(initial.promptFolders);
         setPrompts(initial.prompts);
         setStacks(initial.stacks);
         setLessons(initial.lessons);
@@ -128,6 +133,11 @@ export default function App() {
   const isReady = hydration.state === "ready";
 
   // Single persistence path: each collection is written whenever its state changes after load.
+  useEffect(() => {
+    if (isReady && promptFolders !== loadedRef.current?.promptFolders) {
+      savePromptFoldersToDB(promptFolders);
+    }
+  }, [isReady, promptFolders]);
   useEffect(() => {
     if (isReady && prompts !== loadedRef.current?.prompts) savePromptsToDB(prompts);
   }, [isReady, prompts]);
@@ -235,6 +245,48 @@ export default function App() {
     });
   };
 
+  // Folder handlers
+  const sortFolders = (list: PromptFolder[]) =>
+    [...list].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+
+  const handleCreateFolder = (name: string): PromptFolder => {
+    const folder: PromptFolder = { id: newId("folder"), name, createdAt: new Date().toISOString() };
+    setPromptFolders((prev) => sortFolders([...prev, folder]));
+    return folder;
+  };
+
+  const handleRenameFolder = (id: string, name: string) => {
+    setPromptFolders((prev) => sortFolders(prev.map((f) => (f.id === id ? { ...f, name } : f))));
+  };
+
+  /** Deletes the folder only. Its prompts move to Unfiled; Undo restores both. */
+  const handleDeleteFolder = (id: string) => {
+    const folder = promptFolders.find((f) => f.id === id);
+    if (!folder) return;
+    const movedIds = new Set(prompts.filter((p) => p.folderId === id).map((p) => p.id));
+    setPromptFolders((prev) => prev.filter((f) => f.id !== id));
+    setPrompts((prev) => prev.map((p) => (p.folderId === id ? { ...p, folderId: null } : p)));
+    const movedNote = movedIds.size
+      ? ` · ${movedIds.size} prompt${movedIds.size === 1 ? "" : "s"} moved to Unfiled`
+      : "";
+    showNotification(`Deleted folder "${folder.name}"${movedNote}`, () => {
+      setPromptFolders((prev) =>
+        prev.some((f) => f.id === folder.id) ? prev : sortFolders([...prev, folder]),
+      );
+      setPrompts((prev) =>
+        prev.map((p) => (movedIds.has(p.id) && !p.folderId ? { ...p, folderId: folder.id } : p)),
+      );
+    });
+  };
+
+  const handleMovePrompt = (promptId: string, folderId: string | null) => {
+    setPrompts((prev) =>
+      prev.map((p) =>
+        p.id === promptId ? { ...p, folderId, updatedAt: new Date().toISOString() } : p,
+      ),
+    );
+  };
+
   const handleToggleFavoritePrompt = (id: string) => {
     setPrompts((prev) => {
       const next = prev.map((p) => (p.id === id ? { ...p, isFavorite: !p.isFavorite } : p));
@@ -322,7 +374,14 @@ export default function App() {
 
   // Restore replaces only the collections present in the validated backup.
   const handleImportBundle = (backup: ParsedBackup) => {
-    if (backup.prompts) setPrompts(backup.prompts);
+    if (backup.promptFolders) setPromptFolders(backup.promptFolders);
+    const validFolderIds = new Set((backup.promptFolders ?? promptFolders).map((f) => f.id));
+    const reconcile = (list: PromptItem[]) =>
+      list.map((p) =>
+        p.folderId && !validFolderIds.has(p.folderId) ? { ...p, folderId: null } : p,
+      );
+    if (backup.prompts) setPrompts(reconcile(backup.prompts));
+    else if (backup.promptFolders) setPrompts((prev) => reconcile(prev));
     if (backup.stacks) setStacks(backup.stacks);
     if (backup.lessons) {
       setLessons(backup.lessons);
@@ -333,6 +392,7 @@ export default function App() {
   };
 
   const handleClearVault = () => {
+    setPromptFolders([]);
     setPrompts([]);
     setStacks([]);
     setLessons([]);
@@ -344,6 +404,9 @@ export default function App() {
 
   const handlePaletteNavigate = (view: WorkspaceView, itemId?: string) => {
     setActiveView(view);
+    if (view === "prompts" && itemId) {
+      setPromptToOpen(itemId);
+    }
     if (view === "lessons" && itemId) {
       setActiveLessonId(itemId);
     }
@@ -614,7 +677,10 @@ export default function App() {
                     <button
                       key={prompt.id}
                       type="button"
-                      onClick={() => setActiveView("prompts")}
+                      onClick={() => {
+                        setPromptToOpen(prompt.id);
+                        setActiveView("prompts");
+                      }}
                       className="w-full text-left px-4 py-2 rounded-full text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-100 truncate cursor-pointer"
                     >
                       {prompt.title}
@@ -741,6 +807,14 @@ export default function App() {
               {activeView === "prompts" && (
                 <PromptsView
                   prompts={prompts}
+                  folders={promptFolders}
+                  onCreateFolder={handleCreateFolder}
+                  onRenameFolder={handleRenameFolder}
+                  onDeleteFolder={handleDeleteFolder}
+                  onMovePrompt={handleMovePrompt}
+                  promptToOpen={promptToOpen}
+                  onPromptOpened={() => setPromptToOpen(null)}
+                  editorPreferences={preferences}
                   defaultCopyFormat={preferences.defaultCopyFormat}
                   accentHex={preferences.accentHex}
                   onSavePrompt={handleSavePrompt}
@@ -749,8 +823,6 @@ export default function App() {
                   onIncrementCopy={handleIncrementPromptCopy}
                   onRecordClipboard={handleRecordClipboard}
                   onNotify={showNotification}
-                  externalCreateTrigger={triggerNewPrompt}
-                  onClearExternalCreate={() => setTriggerNewPrompt(false)}
                 />
               )}
 
@@ -794,6 +866,7 @@ export default function App() {
 
               {activeView === "data" && (
                 <DataBackupView
+                  promptFolders={promptFolders}
                   prompts={prompts}
                   stacks={stacks}
                   lessons={lessons}

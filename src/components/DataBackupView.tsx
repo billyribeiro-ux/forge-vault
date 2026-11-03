@@ -10,6 +10,7 @@ import {
 import {
   CodeLessonItem,
   MarkdownDocItem,
+  PromptFolder,
   PromptItem,
   TechStackItem,
   ThemePreferences,
@@ -19,6 +20,7 @@ import { ParsedBackup, describeBackupCounts, parseVaultBackup } from "../service
 import { describeSaveError, describeSaveResult, saveTextFile } from "../services/fileExport";
 
 interface DataBackupViewProps {
+  promptFolders: PromptFolder[];
   prompts: PromptItem[];
   stacks: TechStackItem[];
   lessons: CodeLessonItem[];
@@ -71,6 +73,7 @@ export function buildMarkdownHandbook(
 }
 
 export const DataBackupView: React.FC<DataBackupViewProps> = ({
+  promptFolders,
   prompts,
   stacks,
   lessons,
@@ -90,11 +93,11 @@ export const DataBackupView: React.FC<DataBackupViewProps> = ({
   const bundleJsonString = useMemo(
     () =>
       JSON.stringify(
-        createVaultBackupBundle({ prompts, stacks, lessons, markdownDocs, preferences }),
+        createVaultBackupBundle({ promptFolders, prompts, stacks, lessons, markdownDocs, preferences }),
         null,
         2,
       ),
-    [prompts, stacks, lessons, markdownDocs, preferences],
+    [promptFolders, prompts, stacks, lessons, markdownDocs, preferences],
   );
 
   const kbSize = (new Blob([bundleJsonString]).size / 1024).toFixed(1);
