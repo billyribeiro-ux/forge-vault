@@ -1,42 +1,77 @@
 @import "tailwindcss";
-@custom-variant dark (&:where(.dark, .dark *));
 
-@theme {
-  /*
-   * Google Material Design 3 (M3 Expressive) HCT Tonal Surface & Neutral-Variant Scale
-   * Evidence-calibrated for CIE L* perceptual lightness, zero OLED halation, and APCA Lc compliance:
-   * - Light Mode surfaces: Tone 100 (#FFFFFF), Tone 98 (#F8F9FC), Tone 95 (#F1F3F9), Tone 90 (#E2E6F0)
-   * - Dark Mode surfaces: Tone 4 (#0C0E13), Tone 6 (#111318), Tone 11 (#191C22), Tone 15 (#22252D), Tone 22 (#2E323C)
-   * - Text hierarchy: On-Surface Tone 10 (#191C20) in Light / Tone 90 (#E2E2E9) in Dark
-   */
-  --color-slate-50: #f8f9fc;
-  --color-slate-100: #f1f3f9;
-  --color-slate-200: #e1e5ef;
-  --color-slate-300: #c4c7d0;
-  --color-slate-400: #8e9199;
-  --color-slate-500: #5e6168;
-  --color-slate-600: #44474e;
-  --color-slate-700: #2e323c;
-  --color-slate-800: #22252d;
-  --color-slate-900: #181b21;
-  --color-slate-950: #0c0e13;
+@font-face {
+  font-family: "San Francisco";
+  font-weight: 400;
+  font-style: normal;
+  src:
+    local("SF Pro Regular"), local("SFProText-Regular"), local("SFProDisplay-Regular"),
+    local(".SFNS-Regular"), local(".AppleSystemUIFont");
 }
 
 @layer base {
   :root {
     --font-display:
-      "Plus Jakarta Sans Variable", "Roboto Flex Variable", -apple-system, BlinkMacSystemFont,
-      sans-serif;
+      "San Francisco", "SF Pro Regular", "SF Pro Display", "SF Pro Text", -apple-system,
+      BlinkMacSystemFont, system-ui, sans-serif;
     --font-sans:
-      "Roboto Flex Variable", "DM Sans Variable", -apple-system, BlinkMacSystemFont, sans-serif;
+      "San Francisco", "SF Pro Regular", "SF Pro Text", -apple-system, BlinkMacSystemFont,
+      system-ui, sans-serif;
     --font-mono:
       "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+    /*
+     * Enterprise Neutral-Variant & Achromatic Surface Scale (Nov 2026)
+     * Calibrated for APCA Lc compliance, crisp dark-mode contrast on #212121, and light-mode clarity.
+     */
+    --color-slate-50: #fafafa;
+    --color-slate-100: #f4f4f5;
+    --color-slate-200: #e4e4e7;
+    --color-slate-300: #d4d4d8;
+    --color-slate-400: #a8a8b2;
+    --color-slate-500: #71717a;
+    --color-slate-600: #52525b;
+    --color-slate-700: #38383d;
+    --color-slate-800: #28282c;
+    --color-slate-900: #1e1e21;
+    --color-slate-950: #141416;
 
     /* Dynamic Seed Accent */
     --accent-color: #4285f4;
     --accent-hover: color-mix(in oklch, var(--accent-color) 88%, black);
     --accent-soft: color-mix(in oklch, var(--accent-color) 14%, transparent);
     --editor-font-size: 13px;
+
+    /* Light Mode Default Theme Tokens */
+    --bg-app-shell: #f1f3f9;
+    --bg-main-canvas: #ffffff;
+    --bg-canvas-card: #f8f9fc;
+    --border-canvas: rgba(0, 0, 0, 0.08);
+    --border-subtle: rgba(0, 0, 0, 0.06);
+
+    --bg-toggle-track: #e6e8ee;
+    --bg-toggle-active: #ffffff;
+    --border-toggle-active: rgba(0, 0, 0, 0.1);
+
+    --bg-rail-icon-active: #e1e3e9;
+    --accent-notification-dot: #589bf7;
+    --icon-rail-stroke: #5e6168;
+    --icon-rail-stroke-hover: #191c20;
+
+    --bg-composer-pill: #f2f4f9;
+    --border-composer-pill: rgba(0, 0, 0, 0.1);
+    --bg-voice-btn: #191c20;
+    --icon-voice-btn: #ffffff;
+
+    --text-primary: #191c20;
+    --text-secondary: #5e6168;
+    --icon-muted: #74777f;
+
+    --bg-avatar-olive: #6b705c;
+
+    --radius-canvas: 12px;
+    --radius-pill: 9999px;
+    --radius-rail-btn: 10px;
 
     /* Material Design 3 (M3) Light Scheme Tokens (HCT Tone System) */
     --md-sys-color-primary: color-mix(in oklch, var(--accent-color) 90%, #062e6f);
@@ -103,23 +138,50 @@
     --md-sys-color-secondary-container: color-mix(in oklch, var(--accent-color) 24%, #1d2026);
     --md-sys-color-on-secondary-container: color-mix(in oklch, var(--accent-color) 86%, white);
 
-    --md-sys-color-surface-dim: #111318;
-    --md-sys-color-surface: #111318;
-    --md-sys-color-surface-bright: #37393f;
-    --md-sys-color-surface-container-lowest: #0c0e13;
-    --md-sys-color-surface-container-low: #181b21;
-    --md-sys-color-surface-container: #1d2027;
-    --md-sys-color-surface-container-high: #262a33;
-    --md-sys-color-surface-container-highest: #313540;
+    --md-sys-color-surface-dim: #171717;
+    --md-sys-color-surface: #212121;
+    --md-sys-color-surface-bright: #323236;
+    --md-sys-color-surface-container-lowest: #19191b;
+    --md-sys-color-surface-container-low: #27272a;
+    --md-sys-color-surface-container: #2c2c30;
+    --md-sys-color-surface-container-high: #343438;
+    --md-sys-color-surface-container-highest: #3e3e44;
 
-    --md-sys-color-on-surface: #e2e2e9;
-    --md-sys-color-on-surface-variant: #c4c6d0;
-    --md-sys-color-outline: #8e9099;
-    --md-sys-color-outline-variant: #282c37;
+    --md-sys-color-on-surface: #f4f4f6;
+    --md-sys-color-on-surface-variant: #b4b4bc;
+    --md-sys-color-outline: #8e8e96;
+    --md-sys-color-outline-variant: rgba(255, 255, 255, 0.09);
 
     --md-sys-elevation-1: 0 1px 3px 0 rgba(0, 0, 0, 0.38), 0 1px 2px -1px rgba(0, 0, 0, 0.32);
     --md-sys-elevation-2: 0 4px 12px -2px rgba(0, 0, 0, 0.45), 0 2px 4px -2px rgba(0, 0, 0, 0.35);
     --md-sys-elevation-3: 0 12px 32px -4px rgba(0, 0, 0, 0.6), 0 4px 12px -2px rgba(0, 0, 0, 0.45);
+
+    /* ChatGPT macOS Desktop Achromatic Monochrome Tokens (Dark Default) */
+    --bg-app-shell: #171717;
+    --bg-main-canvas: #212121;
+    --bg-canvas-card: #28282b;
+    /* Translucent Glassy Border (Sampled RGB: 48, 50, 58 with backdrop transparency) */
+    --border-canvas: rgba(48, 50, 58, 0.75);
+    --border-canvas-subtle: rgba(48, 50, 58, 0.45);
+    --border-subtle: rgba(48, 50, 58, 0.5);
+
+    --bg-toggle-track: #2a2a2a;
+    --bg-toggle-active: #3a3a3a;
+    --border-toggle-active: rgba(255, 255, 255, 0.08);
+
+    --bg-rail-icon-active: #2f2f2f;
+    --accent-notification-dot: #589bf7;
+    --icon-rail-stroke: #8e8e8e;
+    --icon-rail-stroke-hover: #f4f4f6;
+
+    --bg-composer-pill: #2f2f2f;
+    --border-composer-pill: rgba(255, 255, 255, 0.08);
+    --bg-voice-btn: #ffffff;
+    --icon-voice-btn: #171717;
+
+    --text-primary: #f4f4f6;
+    --text-secondary: #b0b0b8;
+    --icon-muted: #94949c;
 
     color-scheme: dark;
   }
@@ -154,10 +216,15 @@
 
   body {
     font-family: var(--font-sans);
+    font-weight: 400;
+    font-size: 14px;
+    line-height: 1.5;
     background-color: var(--md-sys-color-surface);
     color: var(--md-sys-color-on-surface);
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-    letter-spacing: 0.005em;
+    letter-spacing: -0.006em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
 
   h1,
@@ -166,7 +233,7 @@
   h4,
   .font-display {
     font-family: var(--font-display);
-    letter-spacing: -0.015em;
+    letter-spacing: -0.02em;
   }
 
   code,
@@ -186,7 +253,7 @@
 .m3-card {
   background-color: var(--md-sys-color-surface-container-lowest);
   border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: 20px;
+  border-radius: 16px;
   box-shadow: var(--md-sys-elevation-1);
   transition:
     background-color 180ms var(--md-sys-motion-easing-emphasized),
@@ -217,7 +284,7 @@
 .m3-dialog {
   background-color: var(--md-sys-color-surface-container-lowest);
   border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: 28px;
+  border-radius: 24px;
   box-shadow: var(--md-sys-elevation-3);
 }
 
@@ -229,7 +296,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Material 3 Subtle Scrollbars */
+/* Subtle Scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -246,4 +313,20 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(142, 145, 153, 0.48);
+}
+
+/* macOS Glassy Inset Canvas Border Technique (Sampled RGB: 48, 50, 58) */
+.macos-inset-canvas {
+  border: 1px solid var(--border-canvas);
+  border-radius: var(--radius-canvas);
+  background-color: var(--bg-main-canvas);
+}
+
+.dark .macos-inset-canvas {
+  border-color: rgba(48, 50, 58, 0.75);
+  box-shadow:
+    0 0 0 1px rgba(48, 50, 58, 0.35),
+    0 8px 32px rgba(0, 0, 0, 0.36);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }

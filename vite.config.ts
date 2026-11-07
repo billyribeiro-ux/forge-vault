@@ -11,7 +11,22 @@ export default defineConfig(() => {
       rules: { "vite-plus/prefer-vite-plus-imports": "error" },
       options: { typeAware: true, typeCheck: true },
     },
-    plugins: lazyPlugins(() => [react(), tailwindcss()]),
+    plugins: lazyPlugins(() => [
+      {
+        name: "tailwind-dark-variant",
+        enforce: "pre",
+        transform(code: string, id: string) {
+          if (id.includes("src/index.css")) {
+            return code.replace(
+              '@import "tailwindcss";',
+              '@import "tailwindcss";\n@custom-variant dark (&:where(.dark, .dark *));',
+            );
+          }
+        },
+      },
+      react(),
+      tailwindcss(),
+    ]),
     resolve: {
       alias: {
         "@": path.resolve(import.meta.dirname, "."),

@@ -5,17 +5,35 @@
 
 import React, { Suspense, lazy, useEffect, useRef, useState } from "react";
 import {
+  AutomationsRailIcon,
   BookOpen,
   ClipboardText,
+  ClockRailIcon,
   Command,
   Database,
   FileText,
+  GlobeIcon,
+  GridAppsRailIcon,
+  HomeRailIcon,
+  MagnifyingGlass,
+  MicIcon,
   Moon,
+  MoreHorizontalRailIcon,
+  NavArrowLeft,
+  NavArrowRight,
   Palette,
+  Plus,
+  ResetArrowIcon,
+  SidebarLeftIcon,
+  SidebarRightIcon,
+  SpacesRailIcon,
   Sparkle,
   Stack,
   Star,
   Sun,
+  TargetDotRailIcon,
+  WaveformVoiceIcon,
+  X,
 } from "./components/icons";
 import { DEFAULT_THEME_PREFERENCES } from "./data/seedVault";
 import {
@@ -85,6 +103,12 @@ export default function App() {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [isClipboardDrawerOpen, setIsClipboardDrawerOpen] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [canvasMode, setCanvasMode] = useState<"chat" | "work">("chat");
+  const [composerText, setComposerText] = useState("");
+  const [reasoningEffort, setReasoningEffort] = useState("High");
+  const [isCompanionOpen, setIsCompanionOpen] = useState(false);
+  const [foldersExpanded, setFoldersExpanded] = useState(true);
   const [toast, setToast] = useState<{ id: number; message: string; undo?: () => void } | null>(
     null,
   );
@@ -403,6 +427,7 @@ export default function App() {
   };
 
   const handlePaletteNavigate = (view: WorkspaceView, itemId?: string) => {
+    setCanvasMode("work");
     setActiveView(view);
     if (view === "prompts" && itemId) {
       setPromptToOpen(itemId);
@@ -411,9 +436,6 @@ export default function App() {
       setActiveLessonId(itemId);
     }
   };
-
-  const canvasBgClass =
-    preferences.surfaceContrast === "high-contrast" ? "bg-white dark:bg-[#050608]" : "m3-surface";
 
   const starredPrompts = prompts.filter((p) => p.isFavorite);
   const starredStacks = stacks.filter((s) => s.isFavorite);
@@ -463,67 +485,69 @@ export default function App() {
   ];
 
   return (
-    <div
-      className={`min-h-screen flex flex-col ${canvasBgClass} text-slate-900 dark:text-slate-100 transition-colors duration-200`}
-    >
-      {/* Google Material 3 (M3) Top App Bar */}
+    <div className="h-screen w-screen bg-slate-100 dark:bg-[#171717] text-slate-900 dark:text-[#ECECEC] flex flex-col overflow-hidden font-sans select-none transition-colors">
+      {/* macOS Window Titlebar: 40px on #171717 */}
       <header
         data-tauri-drag-region
-        className={`flex items-center justify-between gap-4 pr-5 py-3 bg-(--md-sys-color-surface)/92 backdrop-blur-md border-b border-(--md-sys-color-outline-variant) sticky top-0 z-30 ${
-          isMacShell ? "pl-[84px]" : "pl-5"
-        }`}
+        className="h-10 bg-slate-100 dark:bg-[#171717] px-3 flex items-center justify-between shrink-0 select-none z-30"
       >
-        {/* Zone 1: Material 3 Brand Emblem */}
-        <a
-          href="#top"
-          onClick={(e) => {
-            e.preventDefault();
-            setActiveView("prompts");
-          }}
-          className="text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100 whitespace-nowrap shrink-0 font-display flex items-center gap-2.5 group"
-        >
-          <span
-            className="w-8 h-8 rounded-xl flex items-center justify-center text-white shadow-xs transition-transform group-hover:scale-105"
-            style={{ backgroundColor: preferences.accentHex }}
+        {/* Left: Navigation Controls (<, >, [|]) */}
+        <div className={`flex items-center gap-1.5 ${isMacShell ? "pl-[76px]" : "pl-1"}`}>
+          {!isMacShell && (
+            <div className="flex items-center gap-2 pl-1 pr-1.5" data-tauri-drag-region>
+              <span className="w-3 h-3 rounded-full bg-[#FF5F56] border border-[#E0443E] inline-block shadow-2xs" />
+              <span className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123] inline-block shadow-2xs" />
+              <span className="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29] inline-block shadow-2xs" />
+            </div>
+          )}
+
+          {/* Back < */}
+          <button
+            type="button"
+            onClick={() => {
+              if (canvasMode === "work") setCanvasMode("chat");
+            }}
+            title="Back to Chat Home"
+            className="p-1 text-slate-500 dark:text-[#8E8E8E] hover:text-slate-900 dark:hover:text-[#ECECEC] rounded hover:bg-slate-200 dark:hover:bg-[#222222] transition-colors cursor-pointer"
           >
-            <Sparkle className="w-4 h-4" />
-          </span>
-          <div className="flex items-center gap-2" data-tauri-drag-region>
-            <span>ForgeVault</span>
-            <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold m3-primary-container">
-              M3 Studio
-            </span>
-          </div>
-        </a>
+            <NavArrowLeft className="w-4 h-4" />
+          </button>
 
-        <SaveStatusIndicator status={saveStatus} />
+          {/* Forward > */}
+          <button
+            type="button"
+            onClick={() => {
+              setCanvasMode("work");
+            }}
+            title="Forward to Workspace"
+            className="p-1 text-slate-500 dark:text-[#8E8E8E] hover:text-slate-900 dark:hover:text-[#ECECEC] rounded hover:bg-slate-200 dark:hover:bg-[#222222] transition-colors cursor-pointer"
+          >
+            <NavArrowRight className="w-4 h-4" />
+          </button>
 
-        {/* Zone 2: Material 3 Pill Navigation Destinations */}
-        <nav className="hidden 2xl:flex items-center gap-1.5 p-1 rounded-full bg-(--md-sys-color-surface-container-low) border border-(--md-sys-color-outline-variant)">
-          {navDestinations.map((dest) => {
-            const IconComponent = dest.icon;
-            const isActive = activeView === dest.id;
-            return (
-              <button
-                key={dest.id}
-                type="button"
-                onClick={() => setActiveView(dest.id)}
-                className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap shrink-0 cursor-pointer ${
-                  isActive
-                    ? "m3-tonal-pill font-semibold shadow-2xs"
-                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-200/50 dark:hover:bg-slate-800/50"
-                }`}
-              >
-                <IconComponent className="w-3.5 h-3.5" />
-                <span>{dest.shortLabel}</span>
-              </button>
-            );
-          })}
-        </nav>
+          {/* Sidebar Left Toggle [▤] positioned above canvas left edge */}
+          <button
+            type="button"
+            onClick={() => setIsDrawerOpen((prev) => !prev)}
+            title="Toggle Navigation Sidebar"
+            className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+              isDrawerOpen
+                ? "text-slate-900 dark:text-[#ECECEC] bg-slate-200 dark:bg-[#222222]"
+                : "text-slate-500 dark:text-[#8E8E8E] hover:text-slate-900 dark:hover:text-[#ECECEC] hover:bg-slate-200 dark:hover:bg-[#222222]"
+            }`}
+          >
+            <SidebarLeftIcon className="w-4 h-4" />
+          </button>
+        </div>
 
-        {/* Zone 3: Material 3 Action Chips (Theme Toggle, Customizer, Clipboard, Search Pill) */}
-        <div className="flex items-center gap-2 shrink-0">
-          {/* Light / Dark Mode M3 Tonal Chip */}
+        {/* Center: Draggable titlebar region */}
+        <div className="flex-1 h-full" data-tauri-drag-region />
+
+        {/* Right: Actions (Theme, Customizer, Clipboard, Search ⌘K, Split Companion) */}
+        <div className="flex items-center gap-2">
+          <SaveStatusIndicator status={saveStatus} />
+
+          {/* Light / Dark Mode Toggle */}
           <button
             type="button"
             onClick={() =>
@@ -531,355 +555,899 @@ export default function App() {
                 mode: preferences.mode === "dark" ? "light" : "dark",
               })
             }
-            title={
-              preferences.mode === "dark"
-                ? "Switch to Daylight Paper (Material 3 Light)"
-                : "Switch to Carbon Tonality (Material 3 Dark)"
-            }
-            aria-label="Toggle Light or Dark Theme"
-            className="flex items-center gap-2 px-3.5 py-2 rounded-full text-xs font-medium bg-(--md-sys-color-surface-container-high) hover:bg-(--md-sys-color-surface-container-highest) border border-(--md-sys-color-outline-variant) text-slate-800 dark:text-slate-200 transition-colors cursor-pointer"
+            title={preferences.mode === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}
+            className="p-1.5 rounded-md text-slate-600 dark:text-[#8E8E8E] hover:text-slate-900 dark:hover:text-[#ECECEC] hover:bg-slate-200 dark:hover:bg-[#222222] transition-colors cursor-pointer"
           >
             {preferences.mode === "dark" ? (
-              <>
-                <Sun filled className="w-4 h-4 text-amber-400" />
-                <span className="hidden sm:inline">Light</span>
-              </>
+              <Sun filled className="w-4 h-4 text-amber-400" />
             ) : (
-              <>
-                <Moon filled className="w-4 h-4 text-indigo-600" />
-                <span className="hidden sm:inline">Dark</span>
-              </>
+              <Moon filled className="w-4 h-4 text-indigo-600" />
             )}
           </button>
 
-          {/* Material 3 Dynamic Theme Customizer Trigger */}
-          <button
-            type="button"
-            onClick={() => setIsThemeModalOpen(true)}
-            title="Customize Material 3 Dynamic Color Seed, Contrast & Monaco Editor"
-            className="flex items-center gap-2 px-3.5 py-2 rounded-full text-xs font-medium bg-(--md-sys-color-surface-container-high) hover:bg-(--md-sys-color-surface-container-highest) border border-(--md-sys-color-outline-variant) text-slate-800 dark:text-slate-200 transition-colors cursor-pointer"
-          >
-            <Palette className="w-4 h-4" style={{ color: preferences.accentHex }} />
-            <span className="hidden sm:inline">Theme</span>
-          </button>
-
-          {/* Clipboard Inspector Drawer Trigger */}
+          {/* Clipboard Inspector */}
           <button
             type="button"
             onClick={() => setIsClipboardDrawerOpen(true)}
-            title="Open Agent Clipboard History & Multi-Copy Inspector"
-            className="flex items-center gap-2 px-3.5 py-2 rounded-full text-xs font-medium bg-(--md-sys-color-surface-container-high) hover:bg-(--md-sys-color-surface-container-highest) border border-(--md-sys-color-outline-variant) text-slate-800 dark:text-slate-200 transition-colors cursor-pointer"
+            title="Clipboard History"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-200/70 dark:bg-[#2A2A2A] text-slate-700 dark:text-[#ECECEC] hover:bg-slate-200 dark:hover:bg-[#333333] transition-colors cursor-pointer"
           >
-            <ClipboardText className="w-4 h-4 text-emerald-500" />
-            <span className="hidden lg:inline">Clipboard</span>
-            <span className="font-mono text-[11px] tabular-nums px-1.5 py-0.2 bg-slate-200/70 dark:bg-slate-800 rounded-full">
-              {clipboardHistory.length}
-            </span>
+            <ClipboardText className="w-3.5 h-3.5 text-emerald-500" />
+            <span className="font-mono text-[10px] tabular-nums">{clipboardHistory.length}</span>
           </button>
 
-          {/* Material 3 Primary Filled Pill Button: Global Command Palette */}
+          {/* Search ⌘K */}
           <button
             type="button"
             onClick={() => setIsCommandPaletteOpen(true)}
-            style={{ backgroundColor: preferences.accentHex }}
-            className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white rounded-full shadow-xs hover:opacity-95 transition-all whitespace-nowrap shrink-0 cursor-pointer"
+            title="Command Palette (⌘K)"
+            className="hidden md:flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-200/70 dark:bg-[#2A2A2A] text-slate-700 dark:text-[#ECECEC] hover:bg-slate-200 dark:hover:bg-[#333333] transition-colors cursor-pointer"
           >
-            <Command className="w-3.5 h-3.5" />
-            <span>Search</span>
-            <kbd className="font-mono text-[10px] opacity-85">⌘K</kbd>
+            <Command className="w-3 h-3" />
+            <span>⌘K</span>
+          </button>
+
+          {/* Split Companion Toggle [⊞] */}
+          <button
+            type="button"
+            onClick={() => setIsCompanionOpen((prev) => !prev)}
+            title="Toggle Companion Studio"
+            className={`p-1.5 rounded-md transition-colors cursor-pointer relative ${
+              isCompanionOpen
+                ? "text-slate-900 dark:text-[#ECECEC] bg-slate-200 dark:bg-[#222222]"
+                : "text-slate-500 dark:text-[#8E8E8E] hover:text-slate-900 dark:hover:text-[#ECECEC] hover:bg-slate-200 dark:hover:bg-[#222222]"
+            }`}
+          >
+            <SidebarRightIcon className="w-4 h-4" />
+            {isCompanionOpen && (
+              <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-[#589BF7]" />
+            )}
           </button>
         </div>
       </header>
 
-      {/* Main Workspace Layout: Material 3 Navigation Drawer (272px) + Main Content Surface */}
-      <div className="flex-1 flex items-start">
-        {/* Material 3 Navigation Drawer */}
-        <aside className="w-68 shrink-0 hidden md:flex flex-col justify-between p-4 bg-(--md-sys-color-surface-container-low) border-r border-(--md-sys-color-outline-variant) sticky top-[61px] h-[calc(100vh-61px)] overflow-y-auto">
-          <div className="space-y-6">
-            {/* M3 Search & Clipboard Quick Action Pills */}
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={() => setIsCommandPaletteOpen(true)}
-                className="w-full flex items-center justify-between px-4 py-2.5 rounded-full bg-(--md-sys-color-surface-container-high) hover:bg-(--md-sys-color-surface-container-highest) border border-(--md-sys-color-outline-variant) text-xs text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
-              >
-                <span className="flex items-center gap-2.5">
-                  <Command className="w-4 h-4" style={{ color: preferences.accentHex }} />
-                  <span className="font-medium">Search Vault</span>
+      {/* Multi-Pane Workspace: Left Rail (52px) + Drawer (260px) + Inset Canvas + Companion (360px) */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Column 1: Left 52px Icon Rail */}
+        <aside className="w-[52px] shrink-0 bg-slate-100 dark:bg-[#171717] flex flex-col items-center justify-between py-2.5 z-20 select-none">
+          {/* Top icon stack */}
+          <div className="flex flex-col items-center gap-2 w-full">
+            {/* Home / Chat Studio */}
+            <button
+              type="button"
+              onClick={() => {
+                setCanvasMode("chat");
+                setPromptToOpen(null);
+              }}
+              title="Home (Chat Studio)"
+              className={`w-9 h-9 rounded-[10px] flex items-center justify-center relative cursor-pointer transition-all ${
+                canvasMode === "chat"
+                  ? "bg-white dark:bg-[#2F2F2F] text-slate-900 dark:text-white shadow-xs"
+                  : "text-slate-500 dark:text-[#8E8E8E] hover:text-slate-900 dark:hover:text-[#ECECEC] hover:bg-slate-200 dark:hover:bg-[#222222]"
+              }`}
+            >
+              <HomeRailIcon className="w-5 h-5" />
+              {canvasMode === "chat" && (
+                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[#589BF7] ring-2 ring-slate-100 dark:ring-[#171717]" />
+              )}
+            </button>
+
+            {/* Tech Stacks */}
+            <button
+              type="button"
+              onClick={() => {
+                setCanvasMode("work");
+                setActiveView("stacks");
+              }}
+              title="Tech Stack Vault"
+              className={`w-9 h-9 rounded-[10px] flex items-center justify-center relative cursor-pointer transition-all ${
+                canvasMode === "work" && activeView === "stacks"
+                  ? "bg-white dark:bg-[#2F2F2F] text-slate-900 dark:text-white shadow-xs"
+                  : "text-slate-500 dark:text-[#8E8E8E] hover:text-slate-900 dark:hover:text-[#ECECEC] hover:bg-slate-200 dark:hover:bg-[#222222]"
+              }`}
+            >
+              <SpacesRailIcon className="w-5 h-5" />
+              {canvasMode === "work" && activeView === "stacks" && (
+                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[#589BF7] ring-2 ring-slate-100 dark:ring-[#171717]" />
+              )}
+            </button>
+
+            {/* Code Lessons */}
+            <button
+              type="button"
+              onClick={() => {
+                setCanvasMode("work");
+                setActiveView("lessons");
+              }}
+              title="Code Lessons (Monaco)"
+              className={`w-9 h-9 rounded-[10px] flex items-center justify-center relative cursor-pointer transition-all ${
+                canvasMode === "work" && activeView === "lessons"
+                  ? "bg-white dark:bg-[#2F2F2F] text-slate-900 dark:text-white shadow-xs"
+                  : "text-slate-500 dark:text-[#8E8E8E] hover:text-slate-900 dark:hover:text-[#ECECEC] hover:bg-slate-200 dark:hover:bg-[#222222]"
+              }`}
+            >
+              <ClockRailIcon className="w-5 h-5" />
+              {canvasMode === "work" && activeView === "lessons" && (
+                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[#589BF7] ring-2 ring-slate-100 dark:ring-[#171717]" />
+              )}
+            </button>
+
+            {/* Markdown Docs */}
+            <button
+              type="button"
+              onClick={() => {
+                setCanvasMode("work");
+                setActiveView("markdown");
+              }}
+              title="Markdown Vault"
+              className={`w-9 h-9 rounded-[10px] flex items-center justify-center relative cursor-pointer transition-all ${
+                canvasMode === "work" && activeView === "markdown"
+                  ? "bg-white dark:bg-[#2F2F2F] text-slate-900 dark:text-white shadow-xs"
+                  : "text-slate-500 dark:text-[#8E8E8E] hover:text-slate-900 dark:hover:text-[#ECECEC] hover:bg-slate-200 dark:hover:bg-[#222222]"
+              }`}
+            >
+              <AutomationsRailIcon className="w-5 h-5" />
+              {canvasMode === "work" && activeView === "markdown" && (
+                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[#589BF7] ring-2 ring-slate-100 dark:ring-[#171717]" />
+              )}
+            </button>
+
+            {/* Backup & Data */}
+            <button
+              type="button"
+              onClick={() => {
+                setCanvasMode("work");
+                setActiveView("data");
+              }}
+              title="Backup & Data"
+              className={`w-9 h-9 rounded-[10px] flex items-center justify-center relative cursor-pointer transition-all ${
+                canvasMode === "work" && activeView === "data"
+                  ? "bg-white dark:bg-[#2F2F2F] text-slate-900 dark:text-white shadow-xs"
+                  : "text-slate-500 dark:text-[#8E8E8E] hover:text-slate-900 dark:hover:text-[#ECECEC] hover:bg-slate-200 dark:hover:bg-[#222222]"
+              }`}
+            >
+              <MoreHorizontalRailIcon className="w-5 h-5" />
+              {canvasMode === "work" && activeView === "data" && (
+                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[#589BF7] ring-2 ring-slate-100 dark:ring-[#171717]" />
+              )}
+            </button>
+
+            {/* Clipboard History Drawer */}
+            <button
+              type="button"
+              onClick={() => setIsClipboardDrawerOpen(true)}
+              title="Clipboard History"
+              className="w-9 h-9 rounded-[10px] flex items-center justify-center text-slate-500 dark:text-[#8E8E8E] hover:text-slate-900 dark:hover:text-[#ECECEC] hover:bg-slate-200 dark:hover:bg-[#222222] cursor-pointer transition-all relative"
+            >
+              <GridAppsRailIcon className="w-5 h-5" />
+              {clipboardHistory.length > 0 && (
+                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-slate-100 dark:ring-[#171717]" />
+              )}
+            </button>
+          </div>
+
+          {/* Bottom icon stack */}
+          <div className="flex flex-col items-center gap-2.5 w-full">
+            {/* Target / Dot (⌘K Command Palette) */}
+            <button
+              type="button"
+              onClick={() => setIsCommandPaletteOpen(true)}
+              title="Command Palette (⌘K)"
+              className="w-9 h-9 rounded-[10px] flex items-center justify-center text-slate-500 dark:text-[#8E8E8E] hover:text-slate-900 dark:hover:text-[#ECECEC] hover:bg-slate-200 dark:hover:bg-[#222222] cursor-pointer transition-all"
+            >
+              <TargetDotRailIcon className="w-5 h-5" />
+            </button>
+
+            {/* Theme & Preferences Avatar ("FV", #6B705C) */}
+            <button
+              type="button"
+              onClick={() => setIsThemeModalOpen(true)}
+              title="Theme Customizer & Preferences"
+              className="w-7 h-7 rounded-full bg-[#6B705C] text-white text-[11px] font-semibold flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-white/20 transition-all shadow-xs"
+            >
+              FV
+            </button>
+          </div>
+        </aside>
+
+        {/* Column 2: 260px Collapsible Secondary Navigation Drawer */}
+        <aside
+          className={`shrink-0 bg-slate-50/80 dark:bg-[#171717] flex flex-col overflow-hidden select-none transition-[width] duration-200 ease-out ${
+            isDrawerOpen ? "w-[260px]" : "w-0 pointer-events-none"
+          }`}
+        >
+          <div className="w-[260px] h-full flex flex-col shrink-0">
+            {/* Drawer Header */}
+            <div className="h-12 flex items-center justify-between px-3.5 border-b border-slate-200/80 dark:border-white/4">
+              <span className="text-xs font-semibold text-slate-800 dark:text-[#ECECEC] flex items-center gap-2">
+                <span
+                  className="w-5 h-5 rounded-md flex items-center justify-center text-white text-[10px]"
+                  style={{ backgroundColor: preferences.accentHex }}
+                >
+                  <Sparkle className="w-3 h-3" />
                 </span>
-                <kbd className="font-mono text-[11px] px-2 py-0.5 rounded-full bg-(--md-sys-color-surface) border border-(--md-sys-color-outline-variant) text-slate-600 dark:text-slate-300">
-                  ⌘K
-                </kbd>
-              </button>
-            </div>
-
-            {/* M3 Navigation Drawer Destinations */}
-            <div>
-              <div className="px-4 mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                Workspace Collections
-              </div>
-              <div className="space-y-1">
-                {navDestinations.map((dest) => {
-                  const IconComponent = dest.icon;
-                  const isActive = activeView === dest.id;
-                  return (
-                    <button
-                      key={dest.id}
-                      type="button"
-                      onClick={() => setActiveView(dest.id)}
-                      className={`w-full flex items-center justify-between px-4 py-2.5 rounded-full text-xs font-medium transition-all cursor-pointer ${
-                        isActive
-                          ? "m3-tonal-pill font-semibold shadow-2xs"
-                          : "text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-100"
-                      }`}
-                    >
-                      <span className="flex items-center gap-3">
-                        <IconComponent className="w-4 h-4" />
-                        <span>{dest.label}</span>
-                      </span>
-                      <span className="font-mono text-[11px] tabular-nums opacity-80">
-                        {dest.count}
-                      </span>
-                    </button>
-                  );
-                })}
+                <span>Workspace Vault</span>
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setIsCommandPaletteOpen(true)}
+                  title="Search Vault (⌘K)"
+                  className="p-1.5 text-slate-500 dark:text-[#8E8E8E] hover:text-slate-900 dark:hover:text-[#ECECEC] rounded hover:bg-slate-200 dark:hover:bg-[#222222] transition-colors cursor-pointer"
+                >
+                  <MagnifyingGlass className="w-4 h-4" />
+                </button>
               </div>
             </div>
 
-            {/* Starred Quick Jump */}
-            <div>
-              <div className="px-4 mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-                <Star filled className="w-3.5 h-3.5 text-amber-400" />
-                <span>Starred Shortcuts</span>
+            {/* Drawer Scrollable Body */}
+            <div className="flex-1 overflow-y-auto p-2.5 space-y-4 text-xs">
+              {/* Core Workspace Collections */}
+              <div>
+                <div className="px-2.5 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-[#8E8E8E]">
+                  Workspace Collections
+                </div>
+                <div className="space-y-0.5">
+                  {navDestinations.map((dest) => {
+                    const IconComponent = dest.icon;
+                    const isActive = activeView === dest.id;
+                    return (
+                      <button
+                        key={dest.id}
+                        type="button"
+                        onClick={() => {
+                          setActiveView(dest.id);
+                          setPromptToOpen(null);
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-colors cursor-pointer text-left ${
+                          isActive
+                            ? "bg-slate-200 dark:bg-[#2A2A2A] text-slate-900 dark:text-[#ECECEC] font-medium"
+                            : "text-slate-600 dark:text-[#9B9B9B] hover:text-slate-900 dark:hover:text-[#ECECEC] hover:bg-slate-200/50 dark:hover:bg-[#222222]"
+                        }`}
+                      >
+                        <span className="flex items-center gap-2.5 truncate">
+                          <IconComponent className="w-4 h-4 shrink-0" />
+                          <span className="truncate">{dest.label}</span>
+                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {dest.count !== undefined && (
+                            <span className="font-mono text-[11px] tabular-nums opacity-70">
+                              {dest.count}
+                            </span>
+                          )}
+                          {isActive && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#589BF7] shrink-0" />
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-              {starredLessons.length === 0 &&
-              starredPrompts.length === 0 &&
-              starredStacks.length === 0 ? (
-                <p className="px-4 text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                  Star any prompt, stack, or lesson for 1-click access.
-                </p>
-              ) : (
-                <div className="space-y-1">
-                  {starredLessons.map((lesson) => (
-                    <button
-                      key={lesson.id}
-                      type="button"
-                      onClick={() => {
-                        setActiveLessonId(lesson.id);
-                        setActiveView("lessons");
-                      }}
-                      className="w-full text-left px-4 py-2 rounded-full text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-100 truncate cursor-pointer"
-                    >
-                      {lesson.title}
-                    </button>
-                  ))}
-                  {starredPrompts.slice(0, 3).map((prompt) => (
-                    <button
-                      key={prompt.id}
-                      type="button"
-                      onClick={() => {
-                        setPromptToOpen(prompt.id);
-                        setActiveView("prompts");
-                      }}
-                      className="w-full text-left px-4 py-2 rounded-full text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-100 truncate cursor-pointer"
-                    >
-                      {prompt.title}
-                    </button>
-                  ))}
-                  {starredStacks.slice(0, 3).map((stack) => (
-                    <button
-                      key={stack.id}
-                      type="button"
-                      onClick={() => setActiveView("stacks")}
-                      className="w-full text-left px-4 py-2 rounded-full text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-100 truncate cursor-pointer"
-                    >
-                      {stack.name}
-                    </button>
-                  ))}
+
+              {/* Prompt Folders / Projects */}
+              <div>
+                <div className="flex items-center justify-between px-2.5 mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-[#8E8E8E]">
+                  <button
+                    type="button"
+                    onClick={() => setFoldersExpanded((prev) => !prev)}
+                    className="flex items-center gap-1 hover:text-slate-700 dark:hover:text-[#ECECEC] cursor-pointer"
+                  >
+                    <span>Prompt Folders</span>
+                    <span className="text-[10px]">{foldersExpanded ? "▾" : "▸"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const name = window.prompt("New folder name:");
+                      if (name && name.trim()) handleCreateFolder(name.trim());
+                    }}
+                    title="New Folder"
+                    className="hover:text-slate-700 dark:hover:text-[#ECECEC] p-0.5 rounded cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
+                {foldersExpanded && (
+                  <div className="space-y-0.5 pl-1">
+                    {promptFolders.length === 0 ? (
+                      <div className="px-3 py-1 text-[11px] text-slate-400 dark:text-[#737373]">
+                        No folders yet
+                      </div>
+                    ) : (
+                      promptFolders.map((f) => {
+                        const count = prompts.filter((p) => p.folderId === f.id).length;
+                        return (
+                          <div
+                            key={f.id}
+                            onClick={() => {
+                              setActiveView("prompts");
+                            }}
+                            className="flex items-center justify-between px-3 py-1.5 rounded-lg text-slate-600 dark:text-[#9B9B9B] hover:text-slate-900 dark:hover:text-[#ECECEC] hover:bg-slate-200/50 dark:hover:bg-[#222222] cursor-pointer"
+                          >
+                            <span className="truncate">{f.name}</span>
+                            <span className="font-mono text-[10px] opacity-70 tabular-nums">
+                              {count}
+                            </span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Starred Shortcuts */}
+              {(starredPrompts.length > 0 ||
+                starredStacks.length > 0 ||
+                starredLessons.length > 0) && (
+                <div>
+                  <div className="flex items-center gap-1 px-2.5 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-[#8E8E8E]">
+                    <Star filled className="w-3 h-3 text-amber-400" />
+                    <span>Starred Shortcuts</span>
+                  </div>
+                  <div className="space-y-0.5">
+                    {starredPrompts.slice(0, 4).map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => {
+                          setPromptToOpen(p.id);
+                          setActiveView("prompts");
+                        }}
+                        className="w-full text-left px-3 py-1.5 rounded-lg text-slate-600 dark:text-[#9B9B9B] hover:text-slate-900 dark:hover:text-[#ECECEC] hover:bg-slate-200/50 dark:hover:bg-[#222222] truncate cursor-pointer"
+                      >
+                        {p.title}
+                      </button>
+                    ))}
+                    {starredStacks.slice(0, 2).map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => setActiveView("stacks")}
+                        className="w-full text-left px-3 py-1.5 rounded-lg text-slate-600 dark:text-[#9B9B9B] hover:text-slate-900 dark:hover:text-[#ECECEC] hover:bg-slate-200/50 dark:hover:bg-[#222222] truncate cursor-pointer"
+                      >
+                        {s.name}
+                      </button>
+                    ))}
+                    {starredLessons.slice(0, 2).map((l) => (
+                      <button
+                        key={l.id}
+                        type="button"
+                        onClick={() => {
+                          setActiveLessonId(l.id);
+                          setActiveView("lessons");
+                        }}
+                        className="w-full text-left px-3 py-1.5 rounded-lg text-slate-600 dark:text-[#9B9B9B] hover:text-slate-900 dark:hover:text-[#ECECEC] hover:bg-slate-200/50 dark:hover:bg-[#222222] truncate cursor-pointer"
+                      >
+                        {l.title}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Recents */}
+              {prompts.length > 0 && (
+                <div>
+                  <div className="px-2.5 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-[#8E8E8E]">
+                    Recent Prompts
+                  </div>
+                  <div className="space-y-0.5">
+                    {prompts.slice(0, 10).map((prompt) => {
+                      const isSelected = activeView === "prompts" && promptToOpen === prompt.id;
+                      return (
+                        <button
+                          key={prompt.id}
+                          type="button"
+                          onClick={() => {
+                            setPromptToOpen(prompt.id);
+                            setActiveView("prompts");
+                          }}
+                          className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs transition-colors cursor-pointer group text-left ${
+                            isSelected
+                              ? "bg-slate-200 dark:bg-[#2A2A2A] text-slate-900 dark:text-[#ECECEC] font-medium"
+                              : "text-slate-600 dark:text-[#9B9B9B] hover:text-slate-900 dark:hover:text-[#ECECEC] hover:bg-slate-200/50 dark:hover:bg-[#222222]"
+                          }`}
+                        >
+                          <span className="truncate pr-2">{prompt.title}</span>
+                          {isSelected && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#589BF7] shrink-0" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
-          </div>
 
-          {/* Bottom Material 3 Surface Container Card for Appearance */}
-          <div className="p-3 rounded-2xl bg-(--md-sys-color-surface-container) border border-(--md-sys-color-outline-variant) space-y-2.5">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  handleUpdatePreferences({
-                    mode: preferences.mode === "dark" ? "light" : "dark",
-                  })
-                }
-                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-full text-xs font-medium bg-(--md-sys-color-surface-container-high) hover:bg-(--md-sys-color-surface-container-highest) text-slate-800 dark:text-slate-200 transition-colors cursor-pointer"
-              >
-                {preferences.mode === "dark" ? (
-                  <>
-                    <Sun filled className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Light</span>
-                  </>
-                ) : (
-                  <>
-                    <Moon filled className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>Dark</span>
-                  </>
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setIsThemeModalOpen(true)}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-full text-xs font-medium m3-tonal-pill hover:opacity-90 transition-opacity cursor-pointer"
-                title="Customize Material 3 Dynamic Color & Monaco Editor"
-              >
-                <Palette className="w-3.5 h-3.5" />
-                <span>M3 Theme</span>
-              </button>
-            </div>
-
-            <div className="px-2 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between font-mono">
-              <span className="truncate">{preferences.accentName}</span>
-              <span>M3 HCT</span>
+            {/* Bottom Appearance Bar */}
+            <div className="p-3 border-t border-slate-200 dark:border-white/4 space-y-2">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleUpdatePreferences({
+                      mode: preferences.mode === "dark" ? "light" : "dark",
+                    })
+                  }
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-200/70 dark:bg-[#222222] hover:bg-slate-200 dark:hover:bg-[#2A2A2A] text-slate-800 dark:text-[#ECECEC] transition-colors cursor-pointer"
+                >
+                  {preferences.mode === "dark" ? (
+                    <>
+                      <Sun filled className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Light</span>
+                    </>
+                  ) : (
+                    <>
+                      <Moon filled className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Dark</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsThemeModalOpen(true)}
+                  className="flex items-center justify-center p-2 rounded-lg text-xs font-medium bg-slate-200/70 dark:bg-[#222222] hover:bg-slate-200 dark:hover:bg-[#2A2A2A] text-slate-800 dark:text-[#ECECEC] transition-colors cursor-pointer"
+                  title="Theme Customizer"
+                >
+                  <Palette className="w-3.5 h-3.5" style={{ color: preferences.accentHex }} />
+                </button>
+              </div>
             </div>
           </div>
         </aside>
 
-        {/* Main Viewport */}
-        <main className="flex-1 min-w-0 p-6 lg:p-8 max-w-[1600px] mx-auto w-full">
-          {/* Mobile Material 3 Pill Bar (visible under md breakpoint) */}
-          <div className="flex md:hidden items-center gap-1.5 mb-5 pb-3 border-b border-(--md-sys-color-outline-variant) overflow-x-auto">
-            {navDestinations.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveView(tab.id)}
-                className={`px-4 py-2 rounded-full text-xs font-medium whitespace-nowrap shrink-0 transition-colors ${
-                  activeView === tab.id
-                    ? "m3-tonal-pill font-semibold"
-                    : "bg-(--md-sys-color-surface-container-low) text-slate-600 dark:text-slate-400 border border-(--md-sys-color-outline-variant)"
-                }`}
-              >
-                {tab.shortLabel}
-              </button>
-            ))}
-          </div>
-
+        {/* Column 3: Floating Inset Canvas (#212121 in dark, #FFFFFF in light, radius: 12px) */}
+        <main className="flex-1 min-w-0 mr-2 mb-2 bg-white dark:bg-[#212121] rounded-[12px] border border-slate-200/80 dark:border-[rgba(48,50,58,0.75)] backdrop-blur-xl overflow-hidden flex flex-col relative shadow-sm dark:shadow-[0_0_0_1px_rgba(48,50,58,0.35),0_8px_32px_rgba(0,0,0,0.36)]">
+          {/* Hydration / Error alerts */}
           {hydration.state === "loading" && (
             <div
               role="status"
-              className="p-12 text-center m3-card text-xs text-slate-500 dark:text-slate-400"
+              className="flex-1 flex items-center justify-center text-xs text-slate-500 dark:text-[#8E8E8E]"
             >
               Opening your vault…
             </div>
           )}
 
           {hydration.state === "error" && (
-            <div role="alert" className="p-8 m3-card border border-rose-500/50 space-y-3 max-w-2xl">
-              <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+            <div
+              role="alert"
+              className="p-8 m-auto bg-slate-50 dark:bg-[#1A1A1A] rounded-xl border border-rose-500/50 space-y-3 max-w-xl text-center"
+            >
+              <h1 className="text-base font-semibold text-slate-900 dark:text-[#ECECEC]">
                 Your vault could not be opened
               </h1>
-              <p className="text-sm text-slate-600 dark:text-slate-300">
-                ForgeVault could not read its local database, so nothing is shown and nothing will
-                be saved until it loads. Your existing data has not been changed.
-              </p>
-              <p className="text-xs font-mono text-rose-600 dark:text-rose-400 break-all">
-                {hydration.message}
-              </p>
+              <p className="text-xs text-slate-600 dark:text-[#9B9B9B]">{hydration.message}</p>
               <button
                 type="button"
                 onClick={() => setLoadAttempt((n) => n + 1)}
-                style={{ backgroundColor: preferences.accentHex }}
-                className="px-4 py-2 text-xs font-semibold rounded-full text-white cursor-pointer"
+                className="px-4 py-1.5 text-xs font-semibold rounded-full bg-slate-900 dark:bg-white text-white dark:text-[#171717] cursor-pointer"
               >
                 Try again
               </button>
             </div>
           )}
 
-          {isReady && (
-            <Suspense
-              fallback={
-                <div className="p-12 text-center m3-card text-xs font-mono text-slate-500 dark:text-slate-400">
-                  Loading Material 3 Studio workspace...
-                </div>
-              }
+          {/* Top Bar inside Inset Canvas: [ Chat | Work ] Segmented Pill & Reset Action */}
+          <div className="h-14 px-4 pt-3 flex items-center justify-between shrink-0 relative z-10">
+            <div className="w-10" />
+
+            {/* Centered Segmented Capsule [ Chat | Work ] */}
+            <div className="w-[248px] h-9 p-0.5 rounded-full bg-slate-200/80 dark:bg-[#2A2A2A] flex items-center shadow-inner">
+              <button
+                type="button"
+                onClick={() => setCanvasMode("chat")}
+                className={`flex-1 h-8 rounded-full text-xs font-medium transition-all flex items-center justify-center cursor-pointer ${
+                  canvasMode === "chat"
+                    ? "bg-white dark:bg-[#3A3A3A] text-slate-900 dark:text-[#ECECEC] border border-black/5 dark:border-white/8 shadow-xs"
+                    : "text-slate-600 dark:text-[#9B9B9B] hover:text-slate-900 dark:hover:text-[#ECECEC]"
+                }`}
+              >
+                Chat
+              </button>
+              <button
+                type="button"
+                onClick={() => setCanvasMode("work")}
+                className={`flex-1 h-8 rounded-full text-xs font-medium transition-all flex items-center justify-center cursor-pointer ${
+                  canvasMode === "work"
+                    ? "bg-white dark:bg-[#3A3A3A] text-slate-900 dark:text-[#ECECEC] border border-black/5 dark:border-white/8 shadow-xs"
+                    : "text-slate-600 dark:text-[#9B9B9B] hover:text-slate-900 dark:hover:text-[#ECECEC]"
+                }`}
+              >
+                Work
+              </button>
+            </div>
+
+            {/* Top Right Action: Reset / New Chat Icon */}
+            <button
+              type="button"
+              onClick={() => {
+                setComposerText("");
+                setCanvasMode("chat");
+              }}
+              title="New chat / Reset"
+              className="p-1.5 rounded-full text-slate-500 dark:text-[#8E8E8E] hover:text-slate-900 dark:hover:text-[#ECECEC] hover:bg-slate-200 dark:hover:bg-[#2A2A2A] transition-colors cursor-pointer"
             >
-              {activeView === "prompts" && (
-                <PromptsView
-                  prompts={prompts}
-                  folders={promptFolders}
-                  onCreateFolder={handleCreateFolder}
-                  onRenameFolder={handleRenameFolder}
-                  onDeleteFolder={handleDeleteFolder}
-                  onMovePrompt={handleMovePrompt}
-                  promptToOpen={promptToOpen}
-                  onPromptOpened={() => setPromptToOpen(null)}
-                  editorPreferences={preferences}
-                  defaultCopyFormat={preferences.defaultCopyFormat}
-                  accentHex={preferences.accentHex}
-                  onSavePrompt={handleSavePrompt}
-                  onDeletePrompt={handleDeletePrompt}
-                  onToggleFavorite={handleToggleFavoritePrompt}
-                  onIncrementCopy={handleIncrementPromptCopy}
-                  onRecordClipboard={handleRecordClipboard}
-                  onNotify={showNotification}
-                />
-              )}
+              <ResetArrowIcon className="w-4 h-4" />
+            </button>
+          </div>
 
-              {activeView === "stacks" && (
-                <StacksView
-                  stacks={stacks}
-                  accentHex={preferences.accentHex}
-                  onSaveStack={handleSaveStack}
-                  onDeleteStack={handleDeleteStack}
-                  onToggleFavorite={handleToggleFavoriteStack}
-                  onIncrementCopy={handleIncrementStackCopy}
-                  onRecordClipboard={handleRecordClipboard}
-                  onNotify={showNotification}
-                />
-              )}
+          {/* Canvas Mode 1: Chat (Matching the Screenshot 1:1) */}
+          {canvasMode === "chat" && (
+            <div className="flex-1 flex flex-col items-center justify-center px-4 relative max-w-3xl mx-auto w-full">
+              {/* Hero Heading: "Ready when you are." */}
+              <h1 className="text-[28px] font-medium tracking-tight text-slate-800 dark:text-[#ECECEC] mb-8 select-none">
+                Ready when you are.
+              </h1>
 
-              {activeView === "lessons" && (
-                <LessonsSplitStudio
-                  lessons={lessons}
-                  activeLessonId={activeLessonId}
-                  preferences={preferences}
-                  onSelectLesson={setActiveLessonId}
-                  onSaveLesson={handleSaveLesson}
-                  onDeleteLesson={handleDeleteLesson}
-                  onUpdatePreferences={handleUpdatePreferences}
-                  onRecordClipboard={handleRecordClipboard}
-                  onNotify={showNotification}
-                />
-              )}
+              {/* Centered Composer Pill */}
+              <div className="w-full max-w-[720px] h-[54px] rounded-full bg-slate-100 dark:bg-[#2F2F2F] border border-slate-200 dark:border-white/7 flex items-center px-3.5 gap-2.5 shadow-[0_4px_20px_rgba(0,0,0,0.25)] transition-all focus-within:ring-1 focus-within:ring-white/20">
+                <button
+                  type="button"
+                  onClick={() => setIsCommandPaletteOpen(true)}
+                  title="Add content or command (⌘K)"
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-slate-500 dark:text-[#9B9B9B] hover:text-slate-900 dark:hover:text-[#ECECEC] hover:bg-slate-200 dark:hover:bg-[#3A3A3A] transition-colors cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
 
-              {activeView === "markdown" && (
-                <MarkdownVaultView
-                  docs={markdownDocs}
-                  preferences={preferences}
-                  onSaveDoc={handleSaveMarkdownDoc}
-                  onDeleteDoc={handleDeleteMarkdownDoc}
-                  onRecordClipboard={handleRecordClipboard}
-                  onNotify={showNotification}
+                <input
+                  type="text"
+                  value={composerText}
+                  onChange={(e) => setComposerText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && composerText.trim()) {
+                      setCanvasMode("work");
+                      setActiveView("prompts");
+                    }
+                  }}
+                  placeholder="Ask ChatGPT"
+                  className="flex-1 bg-transparent text-sm text-slate-900 dark:text-[#ECECEC] placeholder:text-slate-400 dark:placeholder:text-[#9B9B9B] outline-none"
                 />
-              )}
 
-              {activeView === "data" && (
-                <DataBackupView
-                  promptFolders={promptFolders}
-                  prompts={prompts}
-                  stacks={stacks}
-                  lessons={lessons}
-                  markdownDocs={markdownDocs}
-                  preferences={preferences}
-                  onImportBundle={handleImportBundle}
-                  onClearVault={handleClearVault}
-                  onNotify={showNotification}
-                />
-              )}
-            </Suspense>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setReasoningEffort((prev) => (prev === "High" ? "Standard" : "High"))
+                    }
+                    title="Reasoning effort"
+                    className="flex items-center gap-1 text-xs text-slate-500 dark:text-[#9B9B9B] hover:text-slate-900 dark:hover:text-[#ECECEC] px-2 py-1 rounded-md transition-colors cursor-pointer"
+                  >
+                    <span>{reasoningEffort}</span>
+                    <span className="text-[10px] opacity-60">▾</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    title="Voice input"
+                    className="w-7 h-7 rounded-full flex items-center justify-center text-slate-500 dark:text-[#9B9B9B] hover:text-slate-900 dark:hover:text-[#ECECEC] hover:bg-slate-200 dark:hover:bg-[#3A3A3A] transition-colors cursor-pointer"
+                  >
+                    <MicIcon className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    title="Start Voice Session"
+                    className="w-8 h-8 rounded-full bg-slate-900 dark:bg-white flex items-center justify-center text-white dark:text-[#171717] hover:opacity-90 transition-opacity shadow-xs cursor-pointer shrink-0"
+                  >
+                    <WaveformVoiceIcon className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Suggested Action Chips (Screenshot 1:1 Parity) */}
+              <div className="flex flex-wrap items-center justify-center gap-2 mt-5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCanvasMode("work");
+                    setActiveView("prompts");
+                  }}
+                  className="flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-medium text-slate-700 dark:text-[#ECECEC] bg-slate-200/60 dark:bg-[#2A2A2A] hover:bg-slate-200 dark:hover:bg-[#333333] border border-black/5 dark:border-white/5 transition-colors cursor-pointer shadow-2xs"
+                >
+                  <span className="w-2.5 h-2.5 grid grid-cols-2 gap-0.5">
+                    <span className="w-1 h-1 rounded-[0.5px] bg-[#589BF7]" />
+                    <span className="w-1 h-1 rounded-[0.5px] bg-[#589BF7]" />
+                    <span className="w-1 h-1 rounded-[0.5px] bg-[#589BF7]" />
+                    <span className="w-1 h-1 rounded-[0.5px] bg-[#589BF7]" />
+                  </span>
+                  <span>Build a Svelte Enterprise Standards Site</span>
+                </button>
+                {starredPrompts[0] && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCanvasMode("work");
+                      setActiveView("prompts");
+                      setPromptToOpen(starredPrompts[0].id);
+                    }}
+                    className="hidden sm:flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-medium text-slate-700 dark:text-[#ECECEC] bg-slate-200/60 dark:bg-[#2A2A2A] hover:bg-slate-200 dark:hover:bg-[#333333] border border-black/5 dark:border-white/5 transition-colors cursor-pointer shadow-2xs"
+                  >
+                    <Sparkle className="w-3 h-3 text-[#DEA123]" />
+                    <span className="truncate max-w-[200px]">{starredPrompts[0].title}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Canvas Mode 2: Work (Full ForgeVault Workspace Views) */}
+          {canvasMode === "work" && isReady && (
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              {/* Work Sub-Navigation Pills */}
+              <div className="px-4 py-2 flex items-center justify-between border-b border-slate-200/60 dark:border-white/4 shrink-0 bg-slate-50/50 dark:bg-[#1E1E1E]/50">
+                <div className="flex items-center gap-1 overflow-x-auto">
+                  {navDestinations.map((dest) => {
+                    const IconComponent = dest.icon;
+                    const isActive = activeView === dest.id;
+                    return (
+                      <button
+                        key={dest.id}
+                        type="button"
+                        onClick={() => {
+                          setActiveView(dest.id);
+                          setPromptToOpen(null);
+                        }}
+                        className={`h-7 px-2.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer ${
+                          isActive
+                            ? "bg-slate-200 dark:bg-[#2E2E2E] text-slate-900 dark:text-[#ECECEC]"
+                            : "text-slate-600 dark:text-[#9B9B9B] hover:text-slate-900 dark:hover:text-[#ECECEC]"
+                        }`}
+                      >
+                        <IconComponent className="w-3.5 h-3.5" />
+                        <span>{dest.shortLabel}</span>
+                        {dest.count !== undefined && (
+                          <span className="font-mono text-[10px] opacity-75 tabular-nums">
+                            {dest.count}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* View Content */}
+              <div className="flex-1 overflow-y-auto p-4 md:p-6">
+                <Suspense
+                  fallback={
+                    <div className="p-12 text-center text-xs text-slate-500 dark:text-[#8E8E8E]">
+                      Loading workspace...
+                    </div>
+                  }
+                >
+                  {activeView === "prompts" && (
+                    <PromptsView
+                      prompts={prompts}
+                      folders={promptFolders}
+                      onCreateFolder={handleCreateFolder}
+                      onRenameFolder={handleRenameFolder}
+                      onDeleteFolder={handleDeleteFolder}
+                      onMovePrompt={handleMovePrompt}
+                      promptToOpen={promptToOpen}
+                      onPromptOpened={() => setPromptToOpen(null)}
+                      editorPreferences={preferences}
+                      defaultCopyFormat={preferences.defaultCopyFormat}
+                      accentHex={preferences.accentHex}
+                      onSavePrompt={handleSavePrompt}
+                      onDeletePrompt={handleDeletePrompt}
+                      onToggleFavorite={handleToggleFavoritePrompt}
+                      onIncrementCopy={handleIncrementPromptCopy}
+                      onRecordClipboard={handleRecordClipboard}
+                      onNotify={showNotification}
+                    />
+                  )}
+
+                  {activeView === "stacks" && (
+                    <StacksView
+                      stacks={stacks}
+                      accentHex={preferences.accentHex}
+                      onSaveStack={handleSaveStack}
+                      onDeleteStack={handleDeleteStack}
+                      onToggleFavorite={handleToggleFavoriteStack}
+                      onIncrementCopy={handleIncrementStackCopy}
+                      onRecordClipboard={handleRecordClipboard}
+                      onNotify={showNotification}
+                    />
+                  )}
+
+                  {activeView === "lessons" && (
+                    <LessonsSplitStudio
+                      lessons={lessons}
+                      activeLessonId={activeLessonId}
+                      preferences={preferences}
+                      onSelectLesson={setActiveLessonId}
+                      onSaveLesson={handleSaveLesson}
+                      onDeleteLesson={handleDeleteLesson}
+                      onUpdatePreferences={handleUpdatePreferences}
+                      onRecordClipboard={handleRecordClipboard}
+                      onNotify={showNotification}
+                    />
+                  )}
+
+                  {activeView === "markdown" && (
+                    <MarkdownVaultView
+                      docs={markdownDocs}
+                      preferences={preferences}
+                      onSaveDoc={handleSaveMarkdownDoc}
+                      onDeleteDoc={handleDeleteMarkdownDoc}
+                      onRecordClipboard={handleRecordClipboard}
+                      onNotify={showNotification}
+                    />
+                  )}
+
+                  {activeView === "data" && (
+                    <DataBackupView
+                      promptFolders={promptFolders}
+                      prompts={prompts}
+                      stacks={stacks}
+                      lessons={lessons}
+                      markdownDocs={markdownDocs}
+                      preferences={preferences}
+                      onImportBundle={handleImportBundle}
+                      onClearVault={handleClearVault}
+                      onNotify={showNotification}
+                    />
+                  )}
+                </Suspense>
+              </div>
+            </div>
           )}
         </main>
+
+        {/* Column 4: Right Companion Studio Panel (Screenshot 3 Parity) */}
+        {isCompanionOpen && (
+          <aside className="w-[360px] shrink-0 mr-2 mb-2 bg-slate-50 dark:bg-[#212121] rounded-[12px] border border-slate-200/80 dark:border-[rgba(48,50,58,0.75)] backdrop-blur-xl shadow-sm dark:shadow-[0_0_0_1px_rgba(48,50,58,0.35),0_8px_32px_rgba(0,0,0,0.36)] flex flex-col overflow-hidden text-xs select-none">
+            {/* Tab Header Strip */}
+            <div className="h-10 bg-slate-100 dark:bg-[#1A1A1A] border-b border-slate-200/80 dark:border-[rgba(48,50,58,0.45)] flex items-center justify-between px-3">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white dark:bg-[#2A2A2A] text-slate-900 dark:text-[#ECECEC] font-medium shadow-2xs border border-slate-200 dark:border-white/5">
+                  <GlobeIcon className="w-3.5 h-3.5 text-[#589BF7]" />
+                  <span>Studio Tools</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsCompanionOpen(false)}
+                    className="ml-1 text-slate-400 hover:text-slate-700 dark:text-[#8E8E8E] dark:hover:text-[#ECECEC] cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Browser / Tool Navigation Bar */}
+            <div className="h-10 border-b border-slate-200 dark:border-white/6 flex items-center px-3 gap-2 text-slate-500 dark:text-[#8E8E8E]">
+              <button
+                type="button"
+                onClick={() => setActiveView("prompts")}
+                className="hover:text-slate-900 dark:hover:text-[#ECECEC] cursor-pointer"
+              >
+                <NavArrowLeft className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveView("lessons")}
+                className="hover:text-slate-900 dark:hover:text-[#ECECEC] cursor-pointer"
+              >
+                <NavArrowRight className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => showNotification("Workspace refreshed")}
+                className="hover:text-slate-900 dark:hover:text-[#ECECEC] cursor-pointer"
+              >
+                <ResetArrowIcon className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Omnibox / Search URL */}
+              <div className="flex-1 h-7 rounded-full bg-white dark:bg-[#171717] border border-slate-200 dark:border-white/6 px-2.5 flex items-center gap-2 text-slate-400 dark:text-[#8E8E8E]">
+                <MagnifyingGlass className="w-3 h-3 text-slate-400 dark:text-[#737373]" />
+                <span className="text-[11px] text-slate-400 dark:text-[#737373] truncate">
+                  Search or command…
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsCommandPaletteOpen(true)}
+                className="hover:text-slate-900 dark:hover:text-[#ECECEC] cursor-pointer"
+              >
+                <Command className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Panel Body */}
+            <div className="flex-1 p-4 space-y-6 overflow-y-auto">
+              {/* Quick Actions */}
+              <div>
+                <div className="text-[10px] font-semibold text-slate-400 dark:text-[#8E8E8E] uppercase tracking-wider mb-2">
+                  Quick Actions
+                </div>
+                <div className="space-y-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveView("markdown");
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-white dark:bg-[#2A2A2A] hover:bg-slate-100 dark:hover:bg-[#333333] border border-slate-200 dark:border-white/6 text-slate-800 dark:text-[#ECECEC] transition-colors cursor-pointer shadow-2xs"
+                  >
+                    <FileText className="w-4 h-4 text-slate-400 dark:text-[#8E8E8E]" />
+                    <span>New Markdown Doc</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsClipboardDrawerOpen(true)}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-white dark:bg-[#2A2A2A] hover:bg-slate-100 dark:hover:bg-[#333333] border border-slate-200 dark:border-white/6 text-slate-800 dark:text-[#ECECEC] transition-colors cursor-pointer shadow-2xs"
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <ClipboardText className="w-4 h-4 text-emerald-500" />
+                      <span>Clipboard History</span>
+                    </span>
+                    <span className="font-mono text-[10px] opacity-70">
+                      {clipboardHistory.length}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Suggested Tools Section (Screenshot 3 Parity) */}
+              <div>
+                <div className="text-[10px] font-semibold text-slate-400 dark:text-[#8E8E8E] uppercase tracking-wider mb-3">
+                  Studio Workspaces
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  {/* Code Lessons Card */}
+                  <button
+                    type="button"
+                    onClick={() => setActiveView("lessons")}
+                    className="p-3 rounded-xl bg-white dark:bg-[#282828] hover:bg-slate-50 dark:hover:bg-[#303030] border border-slate-200 dark:border-white/6 flex flex-col items-center gap-2 transition-all cursor-pointer group shadow-2xs"
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-[#0066FF] flex items-center justify-center text-white shadow-md group-hover:scale-105 transition-transform">
+                      <BookOpen className="w-5 h-5 text-white" />
+                    </div>
+                    <span className="text-[11px] text-slate-800 dark:text-[#ECECEC] truncate w-full font-medium">
+                      Monaco Code
+                    </span>
+                    <div className="w-full h-0.5 bg-[#589BF7] rounded-full mt-1" />
+                  </button>
+
+                  {/* Architecture Stacks Card */}
+                  <button
+                    type="button"
+                    onClick={() => setActiveView("stacks")}
+                    className="p-3 rounded-xl bg-white dark:bg-[#282828] hover:bg-slate-50 dark:hover:bg-[#303030] border border-slate-200 dark:border-white/6 flex flex-col items-center gap-2 transition-all cursor-pointer group shadow-2xs"
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-[#1F2328] dark:bg-[#14171E] flex items-center justify-center text-white shadow-md group-hover:scale-105 transition-transform border border-slate-700/20 dark:border-white/10">
+                      <Stack className="w-5 h-5 text-white" />
+                    </div>
+                    <span className="text-[11px] text-slate-800 dark:text-[#ECECEC] truncate w-full font-medium">
+                      Tech Stacks
+                    </span>
+                  </button>
+
+                  {/* Build & Toolchain Card */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      showNotification("Vite+ toolchain active: v1.4.0 (strictPort 3000)");
+                    }}
+                    className="p-3 rounded-xl bg-white dark:bg-[#282828] hover:bg-slate-50 dark:hover:bg-[#303030] border border-slate-200 dark:border-white/6 flex flex-col items-center gap-2 transition-all cursor-pointer group shadow-2xs"
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-[#A855F7] flex items-center justify-center text-white shadow-md group-hover:scale-105 transition-transform">
+                      <Sparkle className="w-5 h-5 text-white" />
+                    </div>
+                    <span className="text-[11px] text-slate-800 dark:text-[#ECECEC] truncate w-full font-medium">
+                      Vite+ Tools
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </aside>
+        )}
       </div>
 
       {/* Global Command Palette (Cmd+K) */}
